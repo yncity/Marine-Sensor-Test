@@ -5,22 +5,34 @@
 #include "platform/debug.h"
 #include "files/bmpFile.h"
 #include "utils/utils.h"
-#include "opencv2/core.hpp"
-#include "opencv2/highgui.hpp"
-#include "opencv2/imgproc.hpp"
-#include "opencv2/videoio.hpp"
-#include "cstring"
-#include "cmath"
-#include "chrono"
-#include "ctime"
-#include "iostream"
-#include "ctime"
-#include "memory"
+
+// OpenCV Headers
+#include <opencv2/core.hpp>
+#include <opencv2/highgui.hpp>
+#include <opencv2/imgproc.hpp>
+#include <opencv2/videoio.hpp>
+
+// C/C++ Standard Headers
+#include <cstring>
+#include <cmath>
+#include <chrono>
+#include <ctime>
+#include <iostream>
+#include <memory>
+#include <string>
+#include <cstdlib>
 
 using namespace IslSdk;
 
-static const std::string VIDEO_DIR = "/home/kiost/TEST/Video/";
-static const std::string LOG_DIR = "/home/kiost/TEST/Logfile/"; 
+// 홈 디렉터리 경로를 구하는 함수
+std::string getHomeDir() {
+    const char* home = std::getenv("HOME");
+    return home ? std::string(home) : "";
+}
+
+// 동적 경로 생성 (~/ 확장 문제 완벽 해결)
+const std::string VIDEO_DIR = getHomeDir() + "/TEST/Video/";
+const std::string LOG_DIR   = getHomeDir() + "/TEST/Logfile/";
 
 //--------------------------------------------------------------------------------------------------
 SonarApp::SonarApp(void) : App("SonarApp"), m_pingCount(0)
