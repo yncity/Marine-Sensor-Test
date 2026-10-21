@@ -1,0 +1,3 @@
+[submodule "islSdk"]
+	path = islSdk
+	url = https://github.com/Impact-Subsea/islSdk.git
