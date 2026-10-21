@@ -1,0 +1,43 @@
+#!/bin/bash
+
+BASE="$(cd "$(dirname "$0")" && pwd)"
+LOG_DIR="$BASE/Logfile"
+REPLAYER="$BASE/sdkExample/build/bin/sonarReplay"
+
+# 재생 프로그램 존재 확인
+if [ ! -x "$REPLAYER" ]; then
+    echo "sonarReplay 실행 파일이 없습니다."
+    exit 1
+fi
+
+# 저장된 ISLOG 파일 검색 (최신 파일부터)
+mapfile -d '' -t files < <(
+    find "$LOG_DIR" -maxdepth 1 -type f -name '*.islog' \
+        -printf '%T@ %p\0' |
+    sort -z -nr |
+    cut -z -d ' ' -f2-
+)
+
+if [ ${#files[@]} -eq 0 ]; then
+    echo "저장된 ISLOG 파일이 없습니다."
+    exit 1
+fi
+
+# 파일 선택 메뉴 구성
+menu=()
+
+for i in "${!files[@]}"; do
+    filename="${files[$i]##*/}"
+    menu+=("$((i+1))" "$filename")
+done
+
+# 방향키로 파일 선택
+choice=$(whiptail \
+    --title "ISS360 ISLOG Replay" \
+    --menu "재생할 로그 파일을 선택하세요." \
+    20 100 12 \
+    "${menu[@]}" \
+    3>&1 1>&2 2>&3) || exit 0
+
+# 선택한 파일 재생
+exec "$REPLAYER" "${files[$((choice-1))]}"
