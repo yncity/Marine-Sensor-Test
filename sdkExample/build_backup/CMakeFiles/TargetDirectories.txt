@@ -1,7 +1,0 @@
-/home/kiost/ISS360/sdkExample/build/CMakeFiles/sdkExample.dir
-/home/kiost/ISS360/sdkExample/build/CMakeFiles/sonarReplay.dir
-/home/kiost/ISS360/sdkExample/build/CMakeFiles/edit_cache.dir
-/home/kiost/ISS360/sdkExample/build/CMakeFiles/rebuild_cache.dir
-/home/kiost/ISS360/sdkExample/build/islSdk/CMakeFiles/islSdk.dir
-/home/kiost/ISS360/sdkExample/build/islSdk/CMakeFiles/edit_cache.dir
-/home/kiost/ISS360/sdkExample/build/islSdk/CMakeFiles/rebuild_cache.dir

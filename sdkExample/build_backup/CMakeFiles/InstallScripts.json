@@ -1,8 +1,0 @@
-{
-	"InstallScripts" : 
-	[
-		"/home/kiost/ISS360/sdkExample/build/cmake_install.cmake",
-		"/home/kiost/ISS360/sdkExample/build/islSdk/cmake_install.cmake"
-	],
-	"Parallel" : false
-}
