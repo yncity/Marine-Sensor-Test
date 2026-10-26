@@ -25,34 +25,30 @@
 using namespace IslSdk;
 
 // 홈 디렉터리 경로를 구하는 함수
-std::string getHomeDir() {
-    const char* home = std::getenv("HOME");
+std::string getHomeDir()
+{
+    const char *home = std::getenv("HOME");
     return home ? std::string(home) : "";
 }
 
 // 동적 경로 생성 (~/ 확장 문제 완벽 해결)
 const std::string VIDEO_DIR = getHomeDir() + "/TEST/Video/";
-const std::string LOG_DIR   = getHomeDir() + "/TEST/Logfile/";
+const std::string LOG_DIR = getHomeDir() + "/TEST/Logfile/";
 
 //--------------------------------------------------------------------------------------------------
-SonarApp::SonarApp(void) : App("SonarApp"), m_pingCount(0)
+SonarApp::SonarApp(bool autoScan)
+    : App("SonarApp"),
+      m_pingCount(0),
+      m_autoScan(autoScan)
 {
-    Debug::log(Debug::Severity::Notice, name.c_str(), "created" NEW_LINE
-                                                      "d -> Set settings to defualt" NEW_LINE
-                                                      "s -> Save settings to file" NEW_LINE
-                                                      "r -> Start scaning" NEW_LINE
-                                                      "R -> Stop scaning" NEW_LINE
-                                                      "p -> Save palette" NEW_LINE
-                                                      "t -> Save sonar texture" NEW_LINE
-                                                      "i -> Save sonar image" NEW_LINE
-                                                      "c -> Check head is sync'ed" NEW_LINE);
+    Debug::log(Debug::Severity::Notice, name.c_str(), "created" NEW_LINE "d -> Set settings to defualt" NEW_LINE "s -> Save settings to file" NEW_LINE "r -> Start scaning" NEW_LINE "R -> Stop scaning" NEW_LINE "p -> Save palette" NEW_LINE "t -> Save sonar texture" NEW_LINE "i -> Save sonar image" NEW_LINE "c -> Check head is sync'ed" NEW_LINE);
 }
 //--------------------------------------------------------------------------------------------------
 SonarApp::~SonarApp(void)
 {
 }
 //--------------------------------------------------------------------------------------------------
-void SonarApp::renderPalette(const std::string& path)
+void SonarApp::renderPalette(const std::string &path)
 {
     const uint_t w = 100, h = 1000;
 
@@ -64,12 +60,11 @@ void SonarApp::renderPalette(const std::string& path)
 }
 
 // Grid/meter overlay 함수
-static void drawSonarGrid(cv::Mat& img, float maxRangeM)
+static void drawSonarGrid(cv::Mat &img, float maxRangeM)
 {
     cv::Point center(
         img.cols / 2,
-        img.rows / 2
-    );
+        img.rows / 2);
 
     // SDK의 전체 360도 렌더링 반지름과 일치
     int maxRadius =
@@ -95,8 +90,7 @@ static void drawSonarGrid(cv::Mat& img, float maxRangeM)
             radius,
             gridColor,
             1,
-            cv::LINE_AA
-        );
+            cv::LINE_AA);
 
         // 거리 표시
         cv::putText(
@@ -104,14 +98,12 @@ static void drawSonarGrid(cv::Mat& img, float maxRangeM)
             cv::format("%.1f m", distanceM),
             cv::Point(
                 center.x + 10,
-                center.y - radius + 18
-            ),
+                center.y - radius + 18),
             cv::FONT_HERSHEY_SIMPLEX,
             0.45,
             textColor,
             1,
-            cv::LINE_AA
-        );
+            cv::LINE_AA);
     }
 
     // 30도 간격의 방사형 선
@@ -120,12 +112,10 @@ static void drawSonarGrid(cv::Mat& img, float maxRangeM)
         double rad = deg * CV_PI / 180.0;
 
         int x = static_cast<int>(
-            center.x + maxRadius * std::sin(rad)
-        );
+            center.x + maxRadius * std::sin(rad));
 
         int y = static_cast<int>(
-            center.y - maxRadius * std::cos(rad)
-        );
+            center.y - maxRadius * std::cos(rad));
 
         cv::line(
             img,
@@ -133,8 +123,7 @@ static void drawSonarGrid(cv::Mat& img, float maxRangeM)
             cv::Point(x, y),
             gridColor,
             1,
-            cv::LINE_AA
-        );
+            cv::LINE_AA);
     }
 
     // 소나 중심점
@@ -144,8 +133,7 @@ static void drawSonarGrid(cv::Mat& img, float maxRangeM)
         4,
         cv::Scalar(0, 255, 255),
         cv::FILLED,
-        cv::LINE_AA
-    );
+        cv::LINE_AA);
 
     // 현재 Range 표시
     cv::putText(
@@ -156,12 +144,11 @@ static void drawSonarGrid(cv::Mat& img, float maxRangeM)
         0.7,
         textColor,
         2,
-        cv::LINE_AA
-    );
+        cv::LINE_AA);
 }
 
 // sector 시작각 / 끝각
-static void drawSectorBoundary(cv::Mat& img, float startDeg, float endDeg)
+static void drawSectorBoundary(cv::Mat &img, float startDeg, float endDeg)
 {
     cv::Point center(img.cols / 2, img.rows / 2);
     int maxRadius = std::min(img.cols, img.rows) / 2 - 30;
@@ -180,9 +167,9 @@ static void drawSectorBoundary(cv::Mat& img, float startDeg, float endDeg)
 }
 
 //--------------------------------------------------------------------------------------------------
-void SonarApp::connectSignals(Device& device)
+void SonarApp::connectSignals(Device &device)
 {
-    Sonar& sonar = reinterpret_cast<Sonar&>(device);
+    Sonar &sonar = reinterpret_cast<Sonar &>(device);
 
     ahrs.connectSignals(sonar.ahrs, name);
     gyro.connectSignals(sonar.gyro, name);
@@ -190,12 +177,12 @@ void SonarApp::connectSignals(Device& device)
 
     sonar.onSettingsUpdated.connect(slotSettingsUpdated);
     sonar.onHeadIndexesAcquired.connect(slotHeadIndexesAcquired);
-    sonar.onPingData.connect(slotPingData);                 // Subscribing to this event causes ping data to be sent
-    sonar.onEchoData.connect(slotEchoData);                 // Subscribing to this event causes profiling data to be sent
-    sonar.onPwrAndTemp.connect(slotPwrAndTemp);             // Subscribing to this event causes data to be sent from the device at the rate defined by setSensorRates()
+    sonar.onPingData.connect(slotPingData);     // Subscribing to this event causes ping data to be sent
+    sonar.onEchoData.connect(slotEchoData);     // Subscribing to this event causes profiling data to be sent
+    sonar.onPwrAndTemp.connect(slotPwrAndTemp); // Subscribing to this event causes data to be sent from the device at the rate defined by setSensorRates()
     sonar.onMotorSlip.connect(slotMotorSlip);
     sonar.onMotorMoveComplete.connect(slotMotorMoveComplete);
-    
+
     Sonar::SensorRates rates;
     rates.ahrs = 100;
     rates.gyro = 0;
@@ -205,9 +192,9 @@ void SonarApp::connectSignals(Device& device)
     sonar.setSensorRates(rates);
 }
 //--------------------------------------------------------------------------------------------------
-void SonarApp::disconnectSignals(Device& device)
+void SonarApp::disconnectSignals(Device &device)
 {
-    Sonar& sonar = reinterpret_cast<Sonar&>(device);
+    Sonar &sonar = reinterpret_cast<Sonar &>(device);
 
     ahrs.disconnectSignals();
     gyro.disconnectSignals();
@@ -222,11 +209,11 @@ void SonarApp::disconnectSignals(Device& device)
     sonar.onMotorMoveComplete.disconnect(slotMotorMoveComplete);
 }
 //--------------------------------------------------------------------------------------------------
-void SonarApp::doTask(int_t key, const std::string& path)
+void SonarApp::doTask(int_t key, const std::string &path)
 {
     if (m_device)
     {
-        Sonar& sonar = reinterpret_cast<Sonar&>(*m_device);
+        Sonar &sonar = reinterpret_cast<Sonar &>(*m_device);
 
         switch (key)
         {
@@ -241,7 +228,7 @@ void SonarApp::doTask(int_t key, const std::string& path)
             break;
 
         case 'r':
-        {       
+        {
             // 소나 스캔만 시작
             sonar.startScanning();
             break;
@@ -249,7 +236,7 @@ void SonarApp::doTask(int_t key, const std::string& path)
 
         case 'e':
         {
-            
+
             // 로그 저장을 먼저 마무리
             stopLogRecording();
 
@@ -276,15 +263,15 @@ void SonarApp::doTask(int_t key, const std::string& path)
         {
             // Range 프리셋 (단위: mm)
             const uint32_t rangesMm[] =
-            {
-                1000,   // 1m
-                2000,   // 2m
-                5000,   // 5m
-                10000,  // 10m
-                20000,  // 20m
-                30000,  // 30m
-                50000,  // 50m
-                80000   // 80m
+                {
+                    1000,  // 1m
+                    2000,  // 2m
+                    5000,  // 5m
+                    10000, // 10m
+                    20000, // 20m
+                    30000, // 30m
+                    50000, // 50m
+                    80000  // 80m
             };
 
             int index = key - '1';
@@ -307,16 +294,14 @@ void SonarApp::doTask(int_t key, const std::string& path)
                     Debug::Severity::Info,
                     name.c_str(),
                     "Range change requested: %.1f m",
-                    newRangeMm / 1000.0
-                );
+                    newRangeMm / 1000.0);
             }
             else
             {
                 Debug::log(
                     Debug::Severity::Warning,
                     name.c_str(),
-                    "Range change request rejected"
-                );
+                    "Range change request rejected");
             }
 
             break;
@@ -325,7 +310,7 @@ void SonarApp::doTask(int_t key, const std::string& path)
         case 'p':
             renderPalette(path);
             break;
-        
+
         // 영상 log 기록/종료
         case 'l':
         {
@@ -344,8 +329,7 @@ void SonarApp::doTask(int_t key, const std::string& path)
                 Debug::log(
                     Debug::Severity::Warning,
                     name.c_str(),
-                    "Sonar is not connected"
-                );
+                    "Sonar is not connected");
                 break;
             }
 
@@ -363,8 +347,7 @@ void SonarApp::doTask(int_t key, const std::string& path)
                 timestamp,
                 sizeof(timestamp),
                 "%Y%m%d_%H%M%S",
-                &localTime
-            );
+                &localTime);
 
             std::string filename =
                 LOG_DIR + "sonar_" + std::to_string(sonar.settings.setup.maxRangeMm / 1000) + "m_" + timestamp + "_" +
@@ -380,8 +363,7 @@ void SonarApp::doTask(int_t key, const std::string& path)
                 Debug::log(
                     Debug::Severity::Error,
                     name.c_str(),
-                    "Failed to create ISLOG file"
-                );
+                    "Failed to create ISLOG file");
 
                 m_logWriter.reset();
                 break;
@@ -397,8 +379,7 @@ void SonarApp::doTask(int_t key, const std::string& path)
             sonar.setLogger(
                 m_logWriter,
                 &unusedTrackData,
-                0
-            );
+                0);
 
             // =====================================
             // 5. SDK 데이터 기록 시작
@@ -412,8 +393,7 @@ void SonarApp::doTask(int_t key, const std::string& path)
                 sonar.setLogger(
                     emptyLogger,
                     &unusedTrackData,
-                    0
-                );
+                    0);
 
                 m_logWriter->close();
                 m_logWriter.reset();
@@ -421,8 +401,7 @@ void SonarApp::doTask(int_t key, const std::string& path)
                 Debug::log(
                     Debug::Severity::Error,
                     name.c_str(),
-                    "Failed to start ISLOG recording"
-                );
+                    "Failed to start ISLOG recording");
 
                 break;
             }
@@ -437,12 +416,10 @@ void SonarApp::doTask(int_t key, const std::string& path)
                 Debug::Severity::Notice,
                 name.c_str(),
                 "ISLOG recording started: %s",
-                m_islogPath.c_str()
-            );
+                m_islogPath.c_str());
 
             break;
         }
-
 
         // 영상 녹화 시작/종료
         case 'v':
@@ -461,8 +438,7 @@ void SonarApp::doTask(int_t key, const std::string& path)
                 Debug::log(
                     Debug::Severity::Warning,
                     name.c_str(),
-                    "Sonar image buffer is not ready"
-                );
+                    "Sonar image buffer is not ready");
                 break;
             }
 
@@ -476,8 +452,7 @@ void SonarApp::doTask(int_t key, const std::string& path)
                 timestamp,
                 sizeof(timestamp),
                 "%Y%m%d_%H%M%S",
-                &localTime
-            );
+                &localTime);
 
             m_recordPath =
                 VIDEO_DIR + "sonar_" + std::to_string(sonar.settings.setup.maxRangeMm / 1000) + "m_" + timestamp + "_" +
@@ -495,18 +470,15 @@ void SonarApp::doTask(int_t key, const std::string& path)
                 fps,
                 cv::Size(
                     m_circular.width,
-                    m_circular.height
-                ),
-                true
-            );
+                    m_circular.height),
+                true);
 
             if (!opened)
             {
                 Debug::log(
                     Debug::Severity::Error,
                     name.c_str(),
-                    "Failed to open video recording"
-                );
+                    "Failed to open video recording");
                 break;
             }
 
@@ -522,15 +494,14 @@ void SonarApp::doTask(int_t key, const std::string& path)
                 Debug::Severity::Notice,
                 name.c_str(),
                 "Recording started: %s",
-                m_recordPath.c_str()
-            );
+                m_recordPath.c_str());
 
             break;
         }
 
         case 't':
             m_texture.renderTexture(sonarDataStore, m_palette, false);
-            BmpFile::save(path + "texture.bmp", reinterpret_cast<const uint32_t*>(&m_texture.buf[0]), 32, m_texture.width, m_texture.height);
+            BmpFile::save(path + "texture.bmp", reinterpret_cast<const uint32_t *>(&m_texture.buf[0]), 32, m_texture.width, m_texture.height);
             break;
 
         case 'c':
@@ -544,8 +515,7 @@ void SonarApp::doTask(int_t key, const std::string& path)
             {
                 cv::namedWindow(
                     "ISS360 Sonar",
-                    cv::WINDOW_AUTOSIZE
-                );
+                    cv::WINDOW_AUTOSIZE);
 
                 m_viewerOpen = true;
                 m_imageDirty = true;
@@ -559,36 +529,34 @@ void SonarApp::doTask(int_t key, const std::string& path)
             closeViewer();
             break;
         }
-        
+
         case 'n':
         {
             // 현재 소나 시스템 설정 복사
             Sonar::System system = sonar.settings.system;
 
             // 고정 IP 설정
-            system.ipAddress = 
+            system.ipAddress =
                 Utils::ipToUint(192, 168, 1, 201);
-            
-            system.netmask = 
+
+            system.netmask =
                 Utils::ipToUint(255, 255, 255, 0);
 
-            //DHCP 비활성화
+            // DHCP 비활성화
             system.useDhcp = false;
 
-            //소나 펌웨어에 변경 설정 저장 요청
+            // 소나 펌웨어에 변경 설정 저장 요청
             bool_t ok = sonar.setSystemSettings(system, true);
 
-            if(!ok)
+            if (!ok)
             {
                 Debug::log(
                     Debug::Severity::Warning,
                     "SonarApp",
-                    "Failed to request network settings update"
-                );
+                    "Failed to request network settings update");
             }
 
             break;
-
         }
 
         default:
@@ -610,7 +578,6 @@ void SonarApp::closeViewer()
 
 //----------------------------------------------------
 
-
 void SonarApp::stopLogRecording()
 {
     if (!m_islogRecording)
@@ -621,8 +588,8 @@ void SonarApp::stopLogRecording()
     // =====================================
     if (m_device)
     {
-        Sonar& sonar =
-            reinterpret_cast<Sonar&>(*m_device);
+        Sonar &sonar =
+            reinterpret_cast<Sonar &>(*m_device);
 
         sonar.stopLogging();
 
@@ -633,8 +600,7 @@ void SonarApp::stopLogRecording()
         sonar.setLogger(
             emptyLogger,
             &unusedTrackData,
-            0
-        );
+            0);
     }
 
     // =====================================
@@ -665,10 +631,8 @@ void SonarApp::stopLogRecording()
         "ISLOG %s: %s (records: %u)",
         closed ? "saved" : "close failed",
         m_islogPath.c_str(),
-        static_cast<unsigned int>(recordCount)
-    );
+        static_cast<unsigned int>(recordCount));
 }
-
 
 void SonarApp::stopRecording()
 {
@@ -684,8 +648,7 @@ void SonarApp::stopRecording()
         Debug::Severity::Notice,
         name.c_str(),
         "Recording saved: %s",
-        m_recordPath.c_str()
-    );
+        m_recordPath.c_str());
 }
 
 //----------------------------------------------------
@@ -698,8 +661,8 @@ void SonarApp::shutdown()
     // 프로그램 종료 시 장치 스캔 정지 요청
     if (m_device)
     {
-        Sonar& sonar =
-            reinterpret_cast<Sonar&>(*m_device);
+        Sonar &sonar =
+            reinterpret_cast<Sonar &>(*m_device);
 
         sonar.stopScanning();
     }
@@ -711,30 +674,37 @@ void SonarApp::shutdown()
     closeViewer();
 }
 
-
 //--------------------------------------------------------------------------------------------------
-void SonarApp::connectEvent(Device& device)
+void SonarApp::connectEvent(Device &device)
 {
-    Sonar& sonar = reinterpret_cast<Sonar&>(device);
+    Sonar &sonar = reinterpret_cast<Sonar &>(device);
 
     m_circular.setBuffer(1000, 1000, true);
     m_circular.setSectorArea(
-    0,
-    sonar.settings.setup.maxRangeMm,
-    0,
-    Sonar::maxAngle
-);
+        0,
+        sonar.settings.setup.maxRangeMm,
+        0,
+        Sonar::maxAngle);
     m_circular.useBilinerInterpolation = true;
 
     // Optimal texture size to pass to the GPU - each pixel represents a data point. The GPU can then map this texture to circle (triangle fan)
     m_texture.useBilinerInterpolation = false;
     m_texture.setBuffer(sonar.settings.setup.imageDataPoint, Sonar::maxAngle / Math::abs(sonar.settings.setup.stepSize), true);
     m_texture.setSectorArea(0, sonar.settings.setup.maxRangeMm, sonar.settings.setup.sectorStart, sonar.settings.setup.sectorSize);
+    if (m_autoScan && !sonar.bootloaderMode())
+    {
+        sonar.startScanning();
+
+        Debug::log(
+            Debug::Severity::Notice,
+            name.c_str(),
+            "Automatic scan start requested");
+    }
 }
 //--------------------------------------------------------------------------------------------------
-void SonarApp::callbackSettingsUpdated(Sonar& sonar, bool_t ok, Sonar::Settings::Type settingsType)
+void SonarApp::callbackSettingsUpdated(Sonar &sonar, bool_t ok, Sonar::Settings::Type settingsType)
 {
-    const char* settingsTypeStr[] = { "System", "Acostic", "Setup" };
+    const char *settingsTypeStr[] = {"System", "Acostic", "Setup"};
 
     if (ok)
     {
@@ -750,30 +720,26 @@ void SonarApp::callbackSettingsUpdated(Sonar& sonar, bool_t ok, Sonar::Settings:
                 0,
                 sonar.settings.setup.maxRangeMm,
                 0,
-                Sonar::maxAngle
-            );
+                Sonar::maxAngle);
 
             // Texture 설정 갱신
             m_texture.setBuffer(
                 sonar.settings.setup.imageDataPoint,
                 Sonar::maxAngle /
                     Math::abs(sonar.settings.setup.stepSize),
-                true
-            );
+                true);
 
             m_texture.setSectorArea(
                 0,
                 sonar.settings.setup.maxRangeMm,
                 sonar.settings.setup.sectorStart,
-                sonar.settings.setup.sectorSize
-            );
+                sonar.settings.setup.sectorSize);
 
             Debug::log(
                 Debug::Severity::Info,
                 name.c_str(),
                 "Current Range: %.1f m",
-                sonar.settings.setup.maxRangeMm / 1000.0
-            );
+                sonar.settings.setup.maxRangeMm / 1000.0);
         }
     }
     else
@@ -782,12 +748,12 @@ void SonarApp::callbackSettingsUpdated(Sonar& sonar, bool_t ok, Sonar::Settings:
     }
 }
 //--------------------------------------------------------------------------------------------------
-void SonarApp::callbackHeadIndexesAcquired(Sonar& sonar, const Sonar::HeadIndexes& data)
+void SonarApp::callbackHeadIndexesAcquired(Sonar &sonar, const Sonar::HeadIndexes &data)
 {
     Debug::log(Debug::Severity::Info, name.c_str(), "Head Sync:%s. Slippage:%i", data.state == Sonar::HeadIndexes::State::Ok ? "ok" : "error", data.slippage);
 }
 //--------------------------------------------------------------------------------------------------
-void SonarApp::callbackPingData(Sonar& sonar, const Sonar::Ping& ping)
+void SonarApp::callbackPingData(Sonar &sonar, const Sonar::Ping &ping)
 {
     Debug::log(Debug::Severity::Info, name.c_str(), "Ping data");
 
@@ -797,7 +763,7 @@ void SonarApp::callbackPingData(Sonar& sonar, const Sonar::Ping& ping)
     sonarDataStore.add(ping, txPulseLengthMm);
 
     m_hasPing = true;
-    m_imageDirty = true;    
+    m_imageDirty = true;
 
     m_pingCount++;
 
@@ -814,9 +780,7 @@ void SonarApp::callbackPingData(Sonar& sonar, const Sonar::Ping& ping)
     }
 }
 
-
-
-bool SonarApp::updateViewer(const std::string& path)
+bool SonarApp::updateViewer(const std::string &path)
 {
     using Clock = std::chrono::steady_clock;
 
@@ -842,20 +806,18 @@ bool SonarApp::updateViewer(const std::string& path)
 
     if (needRender && m_device)
     {
-        Sonar& sonar =
-            reinterpret_cast<Sonar&>(*m_device);
+        Sonar &sonar =
+            reinterpret_cast<Sonar &>(*m_device);
 
         m_circular.render(
             sonarDataStore,
             m_palette,
-            true
-        );
+            true);
 
         cv::Mat rawBgra(
             m_circular.height,
             m_circular.width,
-            CV_8UC4
-        );
+            CV_8UC4);
 
         size_t imageBytes =
             rawBgra.total() * rawBgra.elemSize();
@@ -865,16 +827,14 @@ bool SonarApp::updateViewer(const std::string& path)
             std::memcpy(
                 rawBgra.data,
                 m_circular.buf.data(),
-                imageBytes
-            );
+                imageBytes);
 
             cv::Mat displayBgr;
 
             cv::cvtColor(
                 rawBgra,
                 displayBgr,
-                cv::COLOR_BGRA2BGR
-            );
+                cv::COLOR_BGRA2BGR);
 
             // 현재 소나의 실제 측정 Range
             float maxRangeM =
@@ -893,8 +853,7 @@ bool SonarApp::updateViewer(const std::string& path)
             {
                 cv::imshow(
                     "ISS360 Sonar",
-                    m_lastFrame
-                );
+                    m_lastFrame);
             }
         }
     }
@@ -933,9 +892,9 @@ bool SonarApp::updateViewer(const std::string& path)
         if (key != -1)
         {
             std::cout << "Key pressed: " << key
-                    << " / Character: "
-                    << static_cast<char>(key)
-                    << std::endl;
+                      << " / Character: "
+                      << static_cast<char>(key)
+                      << std::endl;
         }
 
         // ESC 또는 x -> 프로그램 전체 종료
@@ -958,15 +917,14 @@ bool SonarApp::updateViewer(const std::string& path)
                 double visible =
                     cv::getWindowProperty(
                         "ISS360 Sonar",
-                        cv::WND_PROP_VISIBLE
-                    );
+                        cv::WND_PROP_VISIBLE);
 
                 if (visible < 1)
                 {
                     m_viewerOpen = false;
                 }
             }
-            catch (const cv::Exception&)
+            catch (const cv::Exception &)
             {
                 m_viewerOpen = false;
             }
@@ -976,25 +934,23 @@ bool SonarApp::updateViewer(const std::string& path)
     return false;
 }
 
-
-
 //--------------------------------------------------------------------------------------------------
-void SonarApp::callbackEchoData(Sonar& sonar, const Sonar::Echos& data)
+void SonarApp::callbackEchoData(Sonar &sonar, const Sonar::Echos &data)
 {
     Debug::log(Debug::Severity::Info, name.c_str(), "Echo data, size:%u", data.data.size());
 }
 //--------------------------------------------------------------------------------------------------
-void SonarApp::callbackPwrAndTemp(Sonar& sonar, const Sonar::CpuPowerTemp& data)
+void SonarApp::callbackPwrAndTemp(Sonar &sonar, const Sonar::CpuPowerTemp &data)
 {
     Debug::log(Debug::Severity::Info, name.c_str(), "CPU:%.1f, SYS:%.1f, 1.0V:%.2f, 1.8V:%.2f, 1.35V:%.2f", data.cpuTemperature, data.auxTemperature, data.core1V0, data.aux1V8, data.ddr1V35);
 }
 //--------------------------------------------------------------------------------------------------
-void SonarApp::callbackMotorSlip(Sonar& sonar)
+void SonarApp::callbackMotorSlip(Sonar &sonar)
 {
     Debug::log(Debug::Severity::Info, name.c_str(), "Motor has slipped");
 }
 //--------------------------------------------------------------------------------------------------
-void SonarApp::callbackMotorMoveComplete(Sonar& sonar, bool_t ok)
+void SonarApp::callbackMotorMoveComplete(Sonar &sonar, bool_t ok)
 {
     Debug::log(Debug::Severity::Info, name.c_str(), "Motor move %s", ok ? "complete" : "busy");
 }

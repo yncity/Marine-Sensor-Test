@@ -1,7 +1,7 @@
 //------------------------------------------ Includes ----------------------------------------------
 
 // SDK includes
-#include "sdk.h"                // The main SDK header. This include most of the SDK functionality
+#include "sdk.h" // The main SDK header. This include most of the SDK functionality
 #include "platform/debug.h"
 #include "utils/utils.h"
 
@@ -13,61 +13,77 @@
 #include "sonarApp.h"
 #include "gpsApp.h"
 #include "opencv2/highgui.hpp"
+#include <csignal>
+#include <string>
 
 using namespace IslSdk;
 
 //------------------------------------------- Globals ----------------------------------------------
 
-std::vector<App*> apps;
+std::vector<App *> apps;
 std::shared_ptr<GpsApp> gpsApp;
 
 // These functions are the callbacks.
-void newPort(const SysPort::SharedPtr& sysPort);
-void newDevice(const Device::SharedPtr& device, const SysPort::SharedPtr& sysPort, const ConnectionMeta& meta);
-void newNmeaDevice(const NmeaDevice::SharedPtr& device, const SysPort::SharedPtr& sysPort, const ConnectionMeta& meta);
-void portOpen(SysPort& sysPort, bool_t failed);
-void portClosed(SysPort& sysPort);
-void portStats(SysPort& sysPort, uint_t txBytes, uint_t rxBytes, uint_t badPackets);
-void portDiscoveryStarted(SysPort& sysPort, AutoDiscovery::Type type);
-void portDiscoveryEvent(SysPort& sysPort, const ConnectionMeta&, AutoDiscovery::Type type, uint_t discoveryCount);
-void portDiscoveryFinished(SysPort& sysPort, AutoDiscovery::Type type, uint_t discoveryCount, bool_t wasCancelled);
-void portData(SysPort& sysPort, const uint8_t* data, uint_t size);
-void portDeleted(SysPort& sysPort);
+void newPort(const SysPort::SharedPtr &sysPort);
+void newDevice(const Device::SharedPtr &device, const SysPort::SharedPtr &sysPort, const ConnectionMeta &meta);
+void newNmeaDevice(const NmeaDevice::SharedPtr &device, const SysPort::SharedPtr &sysPort, const ConnectionMeta &meta);
+void portOpen(SysPort &sysPort, bool_t failed);
+void portClosed(SysPort &sysPort);
+void portStats(SysPort &sysPort, uint_t txBytes, uint_t rxBytes, uint_t badPackets);
+void portDiscoveryStarted(SysPort &sysPort, AutoDiscovery::Type type);
+void portDiscoveryEvent(SysPort &sysPort, const ConnectionMeta &, AutoDiscovery::Type type, uint_t discoveryCount);
+void portDiscoveryFinished(SysPort &sysPort, AutoDiscovery::Type type, uint_t discoveryCount, bool_t wasCancelled);
+void portData(SysPort &sysPort, const uint8_t *data, uint_t size);
+void portDeleted(SysPort &sysPort);
+static bool g_serviceMode = false;
+static volatile std::sig_atomic_t g_stopRequested = 0;
+
+static void handleStopSignal(int)
+{
+    g_stopRequested = 1;
+}
 
 // These slots are used to connect to the SDK signals. Each slot is initialised with the function to call.
-Slot<const SysPort::SharedPtr&> slotNewPort(&newPort);
-Slot<const Device::SharedPtr&, const SysPort::SharedPtr&, const ConnectionMeta&> slotNewDevice(&newDevice);
-Slot<const NmeaDevice::SharedPtr&, const SysPort::SharedPtr&, const ConnectionMeta&> slotNewNmeaDevice(&newNmeaDevice);
-Slot<SysPort&, bool_t> slotPortOpen(&portOpen);
-Slot<SysPort&> slotPortClosed(&portClosed);
-Slot<SysPort&, uint_t, uint_t, uint_t> slotPortStats(&portStats);
-Slot<SysPort&, AutoDiscovery::Type> slotPortDiscoveryStarted(&portDiscoveryStarted);
-Slot<SysPort&, const ConnectionMeta&, AutoDiscovery::Type, uint_t> slotPortDiscoveryEvent(&portDiscoveryEvent);
-Slot<SysPort&, AutoDiscovery::Type, uint_t, bool_t> slotPortDiscoveryFinished(&portDiscoveryFinished);
-Slot<SysPort&, const uint8_t*, uint_t> slotPortData(&portData);
-Slot<SysPort&> slotPortDeleted(&portDeleted);
+Slot<const SysPort::SharedPtr &> slotNewPort(&newPort);
+Slot<const Device::SharedPtr &, const SysPort::SharedPtr &, const ConnectionMeta &> slotNewDevice(&newDevice);
+Slot<const NmeaDevice::SharedPtr &, const SysPort::SharedPtr &, const ConnectionMeta &> slotNewNmeaDevice(&newNmeaDevice);
+Slot<SysPort &, bool_t> slotPortOpen(&portOpen);
+Slot<SysPort &> slotPortClosed(&portClosed);
+Slot<SysPort &, uint_t, uint_t, uint_t> slotPortStats(&portStats);
+Slot<SysPort &, AutoDiscovery::Type> slotPortDiscoveryStarted(&portDiscoveryStarted);
+Slot<SysPort &, const ConnectionMeta &, AutoDiscovery::Type, uint_t> slotPortDiscoveryEvent(&portDiscoveryEvent);
+Slot<SysPort &, AutoDiscovery::Type, uint_t, bool_t> slotPortDiscoveryFinished(&portDiscoveryFinished);
+Slot<SysPort &, const uint8_t *, uint_t> slotPortData(&portData);
+Slot<SysPort &> slotPortDeleted(&portDeleted);
 
-//--------------------------------------------------------------------------------------------------
-int main(int argc, char** argv)
+//-------------------------------------------------------------------------------------------------
+int main(int argc, char **argv)
 {
-    Platform::setTerminalMode();
+    g_serviceMode = (argc > 1 && std::string(argv[1]) == "--service");
+
+    std::signal(SIGTERM, handleStopSignal);
+    std::signal(SIGINT, handleStopSignal);
+
+    if (!g_serviceMode)
+    {
+        Platform::setTerminalMode();
+    }
     const std::string appPath = Platform::getExePath(argv[0]);
-    Sdk sdk;                                                                    // Create the SDK instance
+    Sdk sdk; // Create the SDK instance
 
     Debug::log(Debug::Severity::Notice, "Main", "Impact Subsea SDK version %s    press\033[31m x\033[36m to exit", sdk.version.c_str());
     Platform::sleepMs(1000);
 
-    sdk.ports.onNew.connect(slotNewPort);                                       // Connect to the new port signal
-    sdk.devices.onNew.connect(slotNewDevice);                                   // Connect to the new device signal
-    sdk.nmeaDevices.onNew.connect(slotNewNmeaDevice);                           // Connect to the new NMEA device signal
+    sdk.ports.onNew.connect(slotNewPort);             // Connect to the new port signal
+    sdk.devices.onNew.connect(slotNewDevice);         // Connect to the new device signal
+    sdk.nmeaDevices.onNew.connect(slotNewNmeaDevice); // Connect to the new NMEA device signal
 
     // Serial over Lan ports can be created using the following function, change the IP address and port to suit your needs
     // sdk.ports.createSol("SOL1", false, true, Utils::ipToUint(192, 168, 1, 215), 1001);
 
-
     bool exitRequested = false;
 
-    while (!exitRequested)
+    while (!exitRequested && !g_stopRequested)
     {
         Platform::sleepMs(40);
 
@@ -75,7 +91,7 @@ int main(int argc, char** argv)
         sdk.run();
 
         // 터미널 키보드 입력 처리
-        if (Platform::keyboardPressed())
+        if (!g_serviceMode && Platform::keyboardPressed())
         {
             int_t key = Platform::getKey();
 
@@ -88,7 +104,7 @@ int main(int argc, char** argv)
             }
             else
             {
-                for (App* app : apps)
+                for (App *app : apps)
                 {
                     app->doTask(key, appPath);
                 }
@@ -99,10 +115,10 @@ int main(int argc, char** argv)
             break;
 
         // 소나 GUI 갱신 및 ESC 입력 처리
-        for (App* app : apps)
+        for (App *app : apps)
         {
-            SonarApp* sonarApp =
-                dynamic_cast<SonarApp*>(app);
+            SonarApp *sonarApp =
+                dynamic_cast<SonarApp *>(app);
 
             if (sonarApp != nullptr)
             {
@@ -116,10 +132,10 @@ int main(int argc, char** argv)
     }
 
     // 프로그램 종료 전 녹화 및 GUI 자원 정리
-    for (App* app : apps)
+    for (App *app : apps)
     {
-        SonarApp* sonarApp =
-            dynamic_cast<SonarApp*>(app);
+        SonarApp *sonarApp =
+            dynamic_cast<SonarApp *>(app);
 
         if (sonarApp != nullptr)
         {
@@ -128,13 +144,16 @@ int main(int argc, char** argv)
     }
 
     // 모든 OpenCV 창 정리
-    cv::destroyAllWindows();
+    if (!g_serviceMode)
+    {
+        cv::destroyAllWindows();
+    }
 
     return 0;
 }
 //--------------------------------------------------------------------------------------------------
 // This function is called when a new port is found. It's address has been initialised inside the slot class defined above.
-void newPort(const SysPort::SharedPtr& sysPort)
+void newPort(const SysPort::SharedPtr &sysPort)
 {
     // Connect to the port signals
     sysPort->onOpen.connect(slotPortOpen);
@@ -163,17 +182,17 @@ void newPort(const SysPort::SharedPtr& sysPort)
 
     if (sysPort->type == SysPort::Type::Net)
     {
-        NetPort& port = reinterpret_cast<NetPort&>(*sysPort);
+        NetPort &port = reinterpret_cast<NetPort &>(*sysPort);
 
         if (sysPort->name == "NETWORK")
         {
             uint32_t ipAddress = Utils::ipToUint(192, 168, 1, 255);
-            port.discoverIslDevices(0xffff, 0xffff, 0xffff, ipAddress, 33005, 2000);    // These are the default parameters, same as port.discoverIslDevices()
+            port.discoverIslDevices(0xffff, 0xffff, 0xffff, ipAddress, 33005, 2000); // These are the default parameters, same as port.discoverIslDevices()
         }
     }
     else if (sysPort->type == SysPort::Type::Serial)
     {
-        UartPort& port = reinterpret_cast<UartPort&>(*sysPort);
+        UartPort &port = reinterpret_cast<UartPort &>(*sysPort);
         // This call is the same as calling port.discoverIslDevices(pid, pn, sn, baudrate, timeout) multiple times with different baudrates
         port.discoverIslDevices();
 
@@ -183,9 +202,9 @@ void newPort(const SysPort::SharedPtr& sysPort)
 }
 //--------------------------------------------------------------------------------------------------
 // This function is called when a new Device is found. It's address has been initialised inside the slot class defined above.
-void newDevice(const Device::SharedPtr& device, const SysPort::SharedPtr& sysPort, const ConnectionMeta& meta)
+void newDevice(const Device::SharedPtr &device, const SysPort::SharedPtr &sysPort, const ConnectionMeta &meta)
 {
-    App* app = nullptr;
+    App *app = nullptr;
 
     switch (device->info.pid)
     {
@@ -206,7 +225,7 @@ void newDevice(const Device::SharedPtr& device, const SysPort::SharedPtr& sysPor
 
     case Device::Pid::Sonar:
         Debug::log(Debug::Severity::Notice, "Main", "Found Sonar %04u.%04u on port %s", FMT_U(device->info.pn), FMT_U(device->info.sn), sysPort->name.c_str());
-        app = new SonarApp();
+        app = new SonarApp(g_serviceMode);
         break;
 
     default:
@@ -222,11 +241,10 @@ void newDevice(const Device::SharedPtr& device, const SysPort::SharedPtr& sysPor
 
         device->connect();
     }
-
 }
 //--------------------------------------------------------------------------------------------------
 // This function is called when a new Nmea device is found. It's address has been initialised inside the slot class defined above.
-void newNmeaDevice(const NmeaDevice::SharedPtr& device, const SysPort::SharedPtr& sysPort, const ConnectionMeta& meta)
+void newNmeaDevice(const NmeaDevice::SharedPtr &device, const SysPort::SharedPtr &sysPort, const ConnectionMeta &meta)
 {
     if (device->type == NmeaDevice::Type::Gps)
     {
@@ -236,7 +254,7 @@ void newNmeaDevice(const NmeaDevice::SharedPtr& device, const SysPort::SharedPtr
     }
 }
 //--------------------------------------------------------------------------------------------------
-void portOpen(SysPort& sysPort, bool_t isOpen)
+void portOpen(SysPort &sysPort, bool_t isOpen)
 {
     if (isOpen)
     {
@@ -248,22 +266,22 @@ void portOpen(SysPort& sysPort, bool_t isOpen)
     }
 }
 //--------------------------------------------------------------------------------------------------
-void portClosed(SysPort& sysPort)
+void portClosed(SysPort &sysPort)
 {
     Debug::log(Debug::Severity::Info, "Main", "%s closed", sysPort.name.c_str());
 }
 //--------------------------------------------------------------------------------------------------
-void portStats(SysPort& sysPort, uint_t txBytes, uint_t rxBytes, uint_t badPackets)
+void portStats(SysPort &sysPort, uint_t txBytes, uint_t rxBytes, uint_t badPackets)
 {
-    //Debug::log(Debug::Severity::Info, "Main", "%s TX:%u, RX:%u, Bad packets:%u", sysPort.name.c_str(), FMT_U(txBytes), FMT_U(rxBytes), FMT_U(badPackets));
+    // Debug::log(Debug::Severity::Info, "Main", "%s TX:%u, RX:%u, Bad packets:%u", sysPort.name.c_str(), FMT_U(txBytes), FMT_U(rxBytes), FMT_U(badPackets));
 }
 //--------------------------------------------------------------------------------------------------
-void portDiscoveryStarted(SysPort& sysPort, AutoDiscovery::Type type)
+void portDiscoveryStarted(SysPort &sysPort, AutoDiscovery::Type type)
 {
     Debug::log(Debug::Severity::Info, "Main", "%s discovery started", sysPort.name.c_str());
 }
 //--------------------------------------------------------------------------------------------------
-void portDiscoveryEvent(SysPort& sysPort, const ConnectionMeta& meta, AutoDiscovery::Type type, uint_t discoveryCount)
+void portDiscoveryEvent(SysPort &sysPort, const ConnectionMeta &meta, AutoDiscovery::Type type, uint_t discoveryCount)
 {
     if (sysPort.type == SysPort::Type::Net)
     {
@@ -276,17 +294,17 @@ void portDiscoveryEvent(SysPort& sysPort, const ConnectionMeta& meta, AutoDiscov
     }
 }
 //--------------------------------------------------------------------------------------------------
-void portDiscoveryFinished(SysPort& sysPort, AutoDiscovery::Type type, uint_t discoveryCount, bool_t wasCancelled)
+void portDiscoveryFinished(SysPort &sysPort, AutoDiscovery::Type type, uint_t discoveryCount, bool_t wasCancelled)
 {
     Debug::log(Debug::Severity::Info, "Main", "%s Discovery Finished", sysPort.name.c_str());
 }
 //--------------------------------------------------------------------------------------------------
-void portData(SysPort& sysPort, const uint8_t* data, uint_t size)
+void portData(SysPort &sysPort, const uint8_t *data, uint_t size)
 {
     Debug::log(Debug::Severity::Info, "Main", "Port data, size: %u", size);
 }
 //--------------------------------------------------------------------------------------------------
-void portDeleted(SysPort& sysPort)
+void portDeleted(SysPort &sysPort)
 {
     Debug::log(Debug::Severity::Warning, "Main", "Port %s deleted", sysPort.name.c_str());
 }

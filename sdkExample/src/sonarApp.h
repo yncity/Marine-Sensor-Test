@@ -22,27 +22,27 @@ namespace IslSdk
     class SonarApp : public App
     {
     public:
-        SonarApp(void);
+        SonarApp(bool autoScan = false);
         ~SonarApp(void);
-        void renderPalette(const std::string& path);
-        void connectSignals(Device& device) override;
-        void disconnectSignals(Device& device) override;
-        void doTask(int_t key, const std::string& path) override;
+        void renderPalette(const std::string &path);
+        void connectSignals(Device &device) override;
+        void disconnectSignals(Device &device) override;
+        void doTask(int_t key, const std::string &path) override;
         // GUI 화면 갱신 및 ESC 입력 처리
         // ESC를 누르면 true 반환
-        bool updateViewer(const std::string& path);
+        bool updateViewer(const std::string &path);
 
         // 프로그램 종료 시 자원 정리
         void shutdown();
 
-        Slot<Sonar&, bool_t, Sonar::Settings::Type> slotSettingsUpdated{ this, &SonarApp::callbackSettingsUpdated };
-        Slot<Sonar&, const Sonar::HeadIndexes&> slotHeadIndexesAcquired{ this, &SonarApp::callbackHeadIndexesAcquired };
-        Slot<Sonar&, const Sonar::Ping&> slotPingData{ this, &SonarApp::callbackPingData };
-        Slot<Sonar&, const Sonar::Echos&> slotEchoData{ this, &SonarApp::callbackEchoData };
-        Slot<Sonar&, const Sonar::CpuPowerTemp& > slotPwrAndTemp{ this, &SonarApp::callbackPwrAndTemp };
-        Slot<Sonar&> slotMotorSlip { this, &SonarApp::callbackMotorSlip };
-        Slot<Sonar&, bool_t> slotMotorMoveComplete { this, &SonarApp::callbackMotorMoveComplete };
-        
+        Slot<Sonar &, bool_t, Sonar::Settings::Type> slotSettingsUpdated{this, &SonarApp::callbackSettingsUpdated};
+        Slot<Sonar &, const Sonar::HeadIndexes &> slotHeadIndexesAcquired{this, &SonarApp::callbackHeadIndexesAcquired};
+        Slot<Sonar &, const Sonar::Ping &> slotPingData{this, &SonarApp::callbackPingData};
+        Slot<Sonar &, const Sonar::Echos &> slotEchoData{this, &SonarApp::callbackEchoData};
+        Slot<Sonar &, const Sonar::CpuPowerTemp &> slotPwrAndTemp{this, &SonarApp::callbackPwrAndTemp};
+        Slot<Sonar &> slotMotorSlip{this, &SonarApp::callbackMotorSlip};
+        Slot<Sonar &, bool_t> slotMotorMoveComplete{this, &SonarApp::callbackMotorMoveComplete};
+
     private:
         AhrsManager ahrs;
         GyroManager gyro;
@@ -52,20 +52,21 @@ namespace IslSdk
         SonarImage m_circular;
         SonarImage m_texture;
         uint_t m_pingCount;
+        bool m_autoScan = false; // 프로그램 시작 시 자동 스캔 여부
         SonarDataStore sonarDataStore;
-        virtual void connectEvent(Device& device);
-       
-        void callbackSettingsUpdated(Sonar& sonar, bool_t ok, Sonar::Settings::Type settingsType);
-        void callbackHeadIndexesAcquired(Sonar& sonar, const Sonar::HeadIndexes& data);
-        void callbackEchoData(Sonar& sonar, const Sonar::Echos& data);
-        void callbackPingData(Sonar& sonar, const Sonar::Ping& data);
-        void callbackPwrAndTemp(Sonar& sonar, const Sonar::CpuPowerTemp& data);
-        void callbackMotorSlip(Sonar& sonar);
-        void callbackMotorMoveComplete(Sonar& sonar, bool_t ok);
+        virtual void connectEvent(Device &device);
 
-        bool m_viewerOpen = false;   // GUI 창 활성화 여부, z를 눌러 GUI를 활성화했는지 확인
-        bool m_hasPing = false;      // Ping 데이터 수신 여부, 최소 한 번 이상 소나 데이터를 수신했는지 확인
-        bool m_imageDirty = false;   // 새로운 영상 데이터 존재 여부, 새 Ping이 들어와 화면을 다시 그려야 하는지 확인
+        void callbackSettingsUpdated(Sonar &sonar, bool_t ok, Sonar::Settings::Type settingsType);
+        void callbackHeadIndexesAcquired(Sonar &sonar, const Sonar::HeadIndexes &data);
+        void callbackEchoData(Sonar &sonar, const Sonar::Echos &data);
+        void callbackPingData(Sonar &sonar, const Sonar::Ping &data);
+        void callbackPwrAndTemp(Sonar &sonar, const Sonar::CpuPowerTemp &data);
+        void callbackMotorSlip(Sonar &sonar);
+        void callbackMotorMoveComplete(Sonar &sonar, bool_t ok);
+
+        bool m_viewerOpen = false; // GUI 창 활성화 여부, z를 눌러 GUI를 활성화했는지 확인
+        bool m_hasPing = false;    // Ping 데이터 수신 여부, 최소 한 번 이상 소나 데이터를 수신했는지 확인
+        bool m_imageDirty = false; // 새로운 영상 데이터 존재 여부, 새 Ping이 들어와 화면을 다시 그려야 하는지 확인
 
         // 영상 녹화 상태
         bool m_recording = false;
