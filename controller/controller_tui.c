@@ -84,7 +84,7 @@ static void draw_screen(const char *command, const char *message)
     attron(A_BOLD);
     draw_text(0, 2, "MARINE SENSOR CONTROLLER", cols - 4);
     attroff(A_BOLD);
-    draw_text(1, 2, "STAGE 4-D-1 | ASYNC IPC | SERVO u/i/o", cols - 4);
+    draw_text(1, 2, "STAGE 4-D-2 | INDEPENDENT ASYNC IPC | SERVO u/i/o", cols - 4);
     draw_rule(2);
 
     draw_text(3, 2, "SONAR  : status not connected (Stage 5)", cols - 4);
@@ -126,50 +126,6 @@ static void draw_screen(const char *command, const char *message)
         visible_len = (size_t)input_width;
     move(input_row, input_x + (int)visible_len);
     refresh();
-}
-
-static void show_ipc_result(
-    char *message,
-    size_t capacity,
-    const char *command,
-    const char *reply,
-    int rc)
-{
-    char compact[240];
-    size_t j = 0;
-
-    for (size_t i = 0;
-         reply[i] != '\0' && j + 1 < sizeof(compact);
-         ++i)
-    {
-        if (reply[i] == '\r')
-            continue;
-
-        if (reply[i] == '\n')
-        {
-            if (reply[i + 1] != '\0' &&
-                j + 3 < sizeof(compact))
-            {
-                compact[j++] = ' ';
-                compact[j++] = '|';
-                compact[j++] = ' ';
-            }
-        }
-        else if ((unsigned char)reply[i] >= 32)
-        {
-            compact[j++] = reply[i];
-        }
-    }
-
-    compact[j] = '\0';
-
-    snprintf(
-        message,
-        capacity,
-        "%s %.40s -> %.235s",
-        rc == 0 ? "IPC" : "IPC FAILED",
-        command,
-        compact);
 }
 
 int main(void)
@@ -217,25 +173,18 @@ int main(void)
 
     while (!exit_requested)
     {
-        // Check whether the background IPC request has finished.
-        char completed_command[COMMAND_CAPACITY];
-        char reply[4096];
-        int rc;
+        char error_message[256];
 
-        if (controller_async_take(
+        if (controller_async_take_error(
                 &async_ipc,
-                completed_command,
-                sizeof(completed_command),
-                reply,
-                sizeof(reply),
-                &rc))
+                error_message,
+                sizeof(error_message)))
         {
-            show_ipc_result(
+            snprintf(
                 message,
                 sizeof(message),
-                completed_command,
-                reply,
-                rc);
+                "%s",
+                error_message);
 
             draw_screen(command, message);
         }
@@ -247,7 +196,7 @@ int main(void)
 
         if (key == KEY_F(10) || key == 24)
         {
-            if (controller_async_busy(&async_ipc) &&
+            if (controller_async_active(&async_ipc) > 0 &&
                 !exit_confirmation)
             {
                 exit_confirmation = 1;
@@ -292,19 +241,18 @@ int main(void)
                     snprintf(
                         message,
                         sizeof(message),
-                        "IPC pending: %.220s",
+                        "COMMAND: %.220s - request accepted",
                         command);
 
                     command[0] = '\0';
                     command_length = 0;
                 }
-                else if (result == 1)
+                else if (result == -2)
                 {
                     snprintf(
                         message,
                         sizeof(message),
-                        "IPC BUSY - not sent: %.200s",
-                        command);
+                        "IPC LIMIT: command NOT sent");
                 }
                 else
                 {
@@ -341,26 +289,22 @@ int main(void)
 
                 if (result == 0)
                 {
+                    int pulse =
+                        key == 'u' ? 500 : key == 'i' ? 1520
+                                                      : 2500;
+
                     snprintf(
                         message,
                         sizeof(message),
-                        "Servo %c: IPC pending",
-                        (char)key);
-                }
-                else if (result == 1)
-                {
-                    snprintf(
-                        message,
-                        sizeof(message),
-                        "SERVO BUSY: %c NOT SENT",
-                        (char)key);
+                        "SERVO: %d us setting requested",
+                        pulse);
                 }
                 else
                 {
                     snprintf(
                         message,
                         sizeof(message),
-                        "Servo command rejected");
+                        "SERVO: command NOT sent");
                 }
             }
             else if (command_length + 1 < sizeof(command))
@@ -379,7 +323,7 @@ int main(void)
         }
         draw_screen(command, message);
     }
-    int unfinished = controller_async_busy(&async_ipc);
+    unsigned unfinished = controller_async_active(&async_ipc);
 
     endwin();
 

@@ -771,6 +771,23 @@ int main(int argc, char **argv)
     }
     signal(SIGPIPE, SIG_IGN);
 
+    // Automatically reap completed request processes.
+    struct sigaction reap = {0};
+
+    reap.sa_handler = SIG_IGN;
+
+#ifdef SA_NOCLDWAIT
+    reap.sa_flags = SA_NOCLDWAIT;
+#endif
+
+    sigemptyset(&reap.sa_mask);
+
+    if (sigaction(SIGCHLD, &reap, NULL) != 0)
+    {
+        perror("sigaction SIGCHLD");
+        return EXIT_FAILURE;
+    }
+
     mode_t old_mask = umask(0077);
     int server = socket(AF_UNIX, SOCK_STREAM, 0);
     if (server < 0)
@@ -799,14 +816,44 @@ int main(int argc, char **argv)
     while (keep_running)
     {
         int client = accept(server, NULL, NULL);
+
         if (client < 0)
         {
             if (errno == EINTR)
                 continue;
+
             perror("accept");
             break;
         }
-        handle_client(client);
+
+        pid_t pid = fork();
+
+        if (pid < 0)
+        {
+            perror("fork");
+            close(client);
+            continue;
+        }
+
+        if (pid == 0)
+        {
+            // Child process handles this client only.
+            close(server);
+
+            /*
+             * Restore normal child-process waiting.
+             * Required by stop_one_unit(), which uses waitpid().
+             */
+            signal(SIGCHLD, SIG_DFL);
+
+            handle_client(client);
+
+            close(client);
+
+            _exit(EXIT_SUCCESS);
+        }
+
+        // Parent can immediately accept another client.
         close(client);
     }
     close(server);
