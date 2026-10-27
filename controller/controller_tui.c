@@ -84,7 +84,7 @@ static void draw_screen(const char *command, const char *message)
     attron(A_BOLD);
     draw_text(0, 2, "MARINE SENSOR CONTROLLER", cols - 4);
     attroff(A_BOLD);
-    draw_text(1, 2, "STAGE 4-D-2 | INDEPENDENT ASYNC IPC | SERVO u/i/o", cols - 4);
+    draw_text(1, 2, "STAGE 4-D-3 | ASYNC IPC | SAFE STOP HANDLING", cols - 4);
     draw_rule(2);
 
     draw_text(3, 2, "SONAR  : status not connected (Stage 5)", cols - 4);
@@ -166,25 +166,29 @@ int main(void)
     char command[COMMAND_CAPACITY] = {0};
     size_t command_length = 0;
     char message[MESSAGE_CAPACITY] =
-        "Stage 4-D-1 ready: background IPC worker enabled";
+        "Stage 4-D-3 ready: independent IPC and stop handling";
 
     draw_screen(command, message);
     int exit_confirmation = 0;
 
     while (!exit_requested)
     {
-        char error_message[256];
+        char event_message[256];
 
         if (controller_async_take_error(
                 &async_ipc,
-                error_message,
-                sizeof(error_message)))
+                event_message,
+                sizeof(event_message)) ||
+            controller_async_take_notice(
+                &async_ipc,
+                event_message,
+                sizeof(event_message)))
         {
             snprintf(
                 message,
                 sizeof(message),
                 "%s",
-                error_message);
+                event_message);
 
             draw_screen(command, message);
         }
@@ -196,15 +200,27 @@ int main(void)
 
         if (key == KEY_F(10) || key == 24)
         {
-            if (controller_async_active(&async_ipc) > 0 &&
-                !exit_confirmation)
+            unsigned active =
+                controller_async_active(&async_ipc);
+
+            if (active > 0 && !exit_confirmation)
             {
                 exit_confirmation = 1;
 
-                snprintf(
-                    message,
-                    sizeof(message),
-                    "IPC active: press F10/Ctrl+X again to exit");
+                if (controller_async_stopping(&async_ipc))
+                {
+                    snprintf(
+                        message,
+                        sizeof(message),
+                        "STOP request in progress: press again to exit (outcome may be unknown)");
+                }
+                else
+                {
+                    snprintf(
+                        message,
+                        sizeof(message),
+                        "IPC active: press again to exit (unfinished requests may be interrupted)");
+                }
 
                 draw_screen(command, message);
                 continue;
@@ -254,6 +270,13 @@ int main(void)
                         sizeof(message),
                         "IPC LIMIT: command NOT sent");
                 }
+                else if (result == -3)
+                {
+                    snprintf(
+                        message,
+                        sizeof(message),
+                        "SYSTEM: stop in progress - command NOT sent");
+                }
                 else
                 {
                     snprintf(
@@ -298,6 +321,13 @@ int main(void)
                         sizeof(message),
                         "SERVO: %d us setting requested",
                         pulse);
+                }
+                else if (result == -3)
+                {
+                    snprintf(
+                        message,
+                        sizeof(message),
+                        "SERVO: stop in progress - command NOT sent");
                 }
                 else
                 {

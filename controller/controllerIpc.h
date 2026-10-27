@@ -57,7 +57,9 @@ static int controller_ipc_request(const char *command,
 #endif
 
     struct timeval send_limit = {.tv_sec = 3, .tv_usec = 0};
-    struct timeval recv_limit = {.tv_sec = 15, .tv_usec = 0};
+    struct timeval recv_limit = {
+        .tv_sec = strcmp(command, "q") == 0 ? 90 : 15,
+        .tv_usec = 0};
     (void)setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO,
                      &send_limit, sizeof(send_limit));
     (void)setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO,
