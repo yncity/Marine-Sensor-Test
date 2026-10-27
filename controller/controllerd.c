@@ -232,9 +232,7 @@ static void relay_servo_command(char key, char *reply, size_t cap)
     else
         snprintf(reply, cap,
                  "ERROR: Servo did not acknowledge command\n");
-    ƒ
-
-        close(fd);
+    close(fd);
 }
 
 static const char *dispatch(const char *command)
