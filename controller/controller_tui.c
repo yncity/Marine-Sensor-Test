@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "controllerAsync.h"
+#include "controllerStatus.h"
 
 #define COMMAND_CAPACITY 256
 #define MESSAGE_CAPACITY 320
@@ -13,6 +14,10 @@
 #define MIN_SCREEN_HEIGHT 18
 
 static volatile sig_atomic_t exit_requested = 0;
+static ControllerStatusView g_status_view = {
+    "SONAR: checking status...",
+    "DVL: checking status...",
+    "SERVO: checking status..."};
 
 static void on_exit_signal(int signo)
 {
@@ -84,12 +89,14 @@ static void draw_screen(const char *command, const char *message)
     attron(A_BOLD);
     draw_text(0, 2, "MARINE SENSOR CONTROLLER", cols - 4);
     attroff(A_BOLD);
-    draw_text(1, 2, "STAGE 4-D-3 | ASYNC IPC | SAFE STOP HANDLING", cols - 4);
+    draw_text(1, 2,
+              "STAGE 5-A | AUTOMATIC HEALTH STATUS | ASYNC IPC",
+              cols - 4);
     draw_rule(2);
 
-    draw_text(3, 2, "SONAR  : status not connected (Stage 5)", cols - 4);
-    draw_text(4, 2, "DVL    : status not connected (Stage 5)", cols - 4);
-    draw_text(5, 2, "SERVO  : status not connected (Stage 5)", cols - 4);
+    draw_text(3, 2, g_status_view.sonar, cols - 4);
+    draw_text(4, 2, g_status_view.dvl, cols - 4);
+    draw_text(5, 2, g_status_view.servo, cols - 4);
     draw_rule(6);
 
     attron(A_BOLD);
@@ -163,6 +170,25 @@ int main(void)
         return 1;
     }
 
+    static ControllerStatusMonitor status_monitor;
+
+    int status_running =
+        controller_status_start(&status_monitor) == 0;
+
+    unsigned long status_version = 0;
+
+    if (!status_running)
+    {
+        snprintf(g_status_view.sonar, sizeof(g_status_view.sonar),
+                 "SONAR: status monitor unavailable");
+
+        snprintf(g_status_view.dvl, sizeof(g_status_view.dvl),
+                 "DVL: status monitor unavailable");
+
+        snprintf(g_status_view.servo, sizeof(g_status_view.servo),
+                 "SERVO: status monitor unavailable");
+    }
+
     char command[COMMAND_CAPACITY] = {0};
     size_t command_length = 0;
     char message[MESSAGE_CAPACITY] =
@@ -173,6 +199,15 @@ int main(void)
 
     while (!exit_requested)
     {
+        if (status_running &&
+            controller_status_snapshot(
+                &status_monitor,
+                &g_status_view,
+                &status_version))
+        {
+            draw_screen(command, message);
+        }
+
         char event_message[256];
 
         if (controller_async_take_error(
@@ -356,6 +391,9 @@ int main(void)
     unsigned unfinished = controller_async_active(&async_ipc);
 
     endwin();
+
+    if (status_running)
+        controller_status_stop(&status_monitor);
 
     puts("controller_tui exited; no device services were stopped.");
 
