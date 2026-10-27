@@ -247,7 +247,7 @@ static inline void controller_log_view_draw(
         monitor, device, newest_offset, lines, limit,
         NULL, NULL, NULL, 0);
 
-    if (online && newest_offset == 0)
+    if (online && count == 0)
     {
         attron(A_DIM);
         mvaddnstr(content_top, x,
