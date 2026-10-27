@@ -58,8 +58,7 @@ static int controller_async_is_error(
            strncmp(reply, "UNKNOWN_COMMAND", 15) == 0 ||
            strncmp(reply, "DENIED", 6) == 0 ||
            strstr(reply, "STOP_FAILED") != NULL ||
-           strstr(reply, "STOP_INCOMPLETE") != NULL ||
-           strstr(reply, "MOCK_FAILED") != NULL;
+           strstr(reply, "STOP_INCOMPLETE") != NULL;
 }
 
 // Independent IPC request worker.
@@ -125,8 +124,6 @@ static void *controller_async_worker(void *arg)
         const char *label =
             strstr(reply, "ALL_DEVICES_STOPPED")
                 ? "SYSTEM: device stop confirmed by controllerd"
-            : strstr(reply, "MOCK_TEST_ONLY")
-                ? "SYSTEM: mock stop completed"
                 : "SYSTEM: stop response received; verify status";
 
         snprintf(
