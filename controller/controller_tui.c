@@ -7,10 +7,6 @@
 #include <string.h>
 #include "controllerIpc.h"
 
-/*
- * Stage 4-A: terminal layout and line editing only.
- * No IPC is sent in this stage. The existing controller.c stays unchanged.
- */
 #define COMMAND_CAPACITY 256
 #define MESSAGE_CAPACITY 320
 #define MIN_SCREEN_WIDTH 72
@@ -88,7 +84,7 @@ static void draw_screen(const char *command, const char *message)
     attron(A_BOLD);
     draw_text(0, 2, "MARINE SENSOR CONTROLLER", cols - 4);
     attroff(A_BOLD);
-    draw_text(1, 2, "STAGE 4-B | ENTER SENDS IPC | SERVO INSTANT KEYS: STAGE 4-C", cols - 4);
+    draw_text(1, 2, "STAGE 4-C | ENTER: COMMANDS | INSTANT: SERVO u/i/o", cols - 4);
     draw_rule(2);
 
     draw_text(3, 2, "SONAR  : status not connected (Stage 5)", cols - 4);
@@ -122,7 +118,7 @@ static void draw_screen(const char *command, const char *message)
     draw_text(input_row, input_x, visible, input_width);
 
     draw_text(rows - 1, 2,
-              "Enter: send | Backspace: edit | Ctrl+U: clear | F10/Ctrl+X: UI exit",
+              "u/i/o: Servo instant | Enter: command | Ctrl+U: clear | F10/Ctrl+X: exit",
               cols - 4);
 
     size_t visible_len = strlen(visible);
@@ -161,7 +157,7 @@ int main(void)
     char command[COMMAND_CAPACITY] = {0};
     size_t command_length = 0;
     char message[MESSAGE_CAPACITY] =
-        "IPC ready: Enter sends to controllerd; F10/Ctrl+X exits UI only";
+        "Stage 4-C ready: u/i/o instant; other commands require Enter";
 
     draw_screen(command, message);
     while (!exit_requested)
@@ -253,15 +249,45 @@ int main(void)
         }
         else if (key >= 32 && key <= 126)
         {
-            /* Stage 4-C will intercept u/i/o when the input line is empty. */
-            if (command_length + 1 < sizeof(command))
+            // Servo instant control: only when command input is empty
+            if (command_length == 0 &&
+                (key == 'u' || key == 'i' || key == 'o'))
             {
+                char servo_command[2] = {
+                    (char)key,
+                    '\0'};
+
+                char reply[512];
+
+                // Send immediately without Enter
+                int rc = controller_ipc_request(
+                    servo_command,
+                    reply,
+                    sizeof(reply));
+
+                // Display only the first response line
+                reply[strcspn(reply, "\r\n")] = '\0';
+
+                snprintf(
+                    message,
+                    sizeof(message),
+                    "%s Servo %c -> %.200s",
+                    rc == 0 ? "IPC" : "IPC FAILED",
+                    (char)key,
+                    reply);
+            }
+            else if (command_length + 1 < sizeof(command))
+            {
+                // Ordinary command input
                 command[command_length++] = (char)key;
                 command[command_length] = '\0';
             }
             else
             {
-                snprintf(message, sizeof(message), "Command too long (max 255 bytes)");
+                snprintf(
+                    message,
+                    sizeof(message),
+                    "Command too long (max 255 bytes)");
             }
         }
         draw_screen(command, message);
