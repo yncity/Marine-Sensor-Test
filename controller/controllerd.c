@@ -443,9 +443,7 @@ static void read_unit_state(
 }
 
 // Collect service states
-static void report_service_states(
-    char *response,
-    size_t cap)
+static void report_service_states(char *response, size_t cap)
 {
     const char *units[] = {
         "sonar.service",
@@ -453,27 +451,154 @@ static void report_service_states(
         "servo.service"};
 
     const char *names[] = {
-        "SONAR",
-        "DVL",
-        "SERVO"};
+        "SONAR", "DVL", "SERVO"};
+
+    const char *prefixes[] = {
+        "SONAR STATE: ",
+        "DVL STATE: ",
+        "SERVO STATE: "};
 
     size_t used = 0;
+    int failed = 0;
+    int stopped = 0;
+    int pending = 0;
+
+    if (cap == 0)
+        return;
+
+    response[0] = '\0';
 
     for (size_t i = 0; i < 3; ++i)
     {
-        char state[64];
+        char service[64];
+        char health[512] = {0};
+        char raw[512] = {0};
+        char state[32] = "UNKNOWN";
 
+        // 1. Read systemd service state
         read_unit_state(
             units[i],
-            state,
-            sizeof(state));
+            service,
+            sizeof(service));
 
+        // 2. Request device health via IPC
+        if (strcmp(service, "active") == 0 ||
+            strcmp(service, "MOCK_ONLY") == 0)
+        {
+            if (i == 0)
+            {
+                relay_sonar_command(
+                    '?', raw, sizeof(raw));
+            }
+            else if (i == 1)
+            {
+                relay_dvl_command(
+                    "?", raw, sizeof(raw));
+            }
+            else
+            {
+                relay_servo_command(
+                    '?', raw, sizeof(raw));
+            }
+
+            // Validate the expected health response
+            if (strncmp(
+                    raw,
+                    prefixes[i],
+                    strlen(prefixes[i])) == 0 &&
+                sscanf(
+                    raw + strlen(prefixes[i]),
+                    "%31s",
+                    state) == 1)
+            {
+                snprintf(
+                    health,
+                    sizeof(health),
+                    "%s",
+                    raw);
+            }
+            else
+            {
+                strcpy(state, "UNKNOWN");
+
+                snprintf(
+                    health,
+                    sizeof(health),
+                    "%s STATE: UNKNOWN\n"
+                    "ERROR: IPC_UNAVAILABLE\n"
+                    "DETAIL: %.250s\n",
+                    names[i],
+                    raw);
+            }
+        }
+        else if (strcmp(service, "inactive") == 0)
+        {
+            strcpy(state, "STOPPED");
+
+            snprintf(
+                health,
+                sizeof(health),
+                "%s STATE: STOPPED\n"
+                "ERROR: NONE\n",
+                names[i]);
+        }
+        else if (strcmp(service, "failed") == 0)
+        {
+            strcpy(state, "ERROR");
+
+            snprintf(
+                health,
+                sizeof(health),
+                "%s STATE: ERROR\n"
+                "ERROR: SERVICE_FAILED\n",
+                names[i]);
+        }
+        else if (strcmp(service, "activating") == 0)
+        {
+            strcpy(state, "STARTING");
+
+            snprintf(
+                health,
+                sizeof(health),
+                "%s STATE: STARTING\n"
+                "ERROR: NONE\n",
+                names[i]);
+        }
+        else
+        {
+            snprintf(
+                health,
+                sizeof(health),
+                "%s STATE: UNKNOWN\n"
+                "ERROR: SERVICE_STATUS_UNKNOWN\n",
+                names[i]);
+        }
+
+        // 3. Aggregate system state
+        if (strcmp(state, "STOPPED") == 0)
+        {
+            ++stopped;
+        }
+        else if (strcmp(state, "ERROR") == 0 ||
+                 strcmp(state, "UNKNOWN") == 0 ||
+                 strcmp(state, "DEGRADED") == 0)
+        {
+            ++failed;
+        }
+        else if (strcmp(state, "RUNNING") != 0 &&
+                 strcmp(state, "READY") != 0)
+        {
+            ++pending;
+        }
+
+        // 4. Append device report
         int written = snprintf(
             response + used,
             cap - used,
-            "%s SERVICE: %s\n",
+            "%s SERVICE: %s\n%s\n",
             names[i],
-            state);
+            service,
+            health);
 
         if (written < 0 ||
             (size_t)written >= cap - used)
@@ -481,11 +606,30 @@ static void report_service_states(
 
         used += (size_t)written;
     }
-}
 
+    // 5. Overall result
+#ifdef MARINE_MOCK_SYSTEMD
+    const char *summary = "MOCK_ONLY";
+#else
+    const char *summary =
+        stopped == 3 ? "STOPPED" : failed           ? "DEGRADED"
+                               : stopped || pending ? "PARTIAL"
+                                                    : "OPERATIONAL";
+#endif
+
+    (void)failed;
+    (void)stopped;
+    (void)pending;
+
+    (void)snprintf(
+        response + used,
+        cap - used,
+        "SYSTEM STATE: %s\n",
+        summary);
+}
 static const char *dispatch(const char *command)
 {
-    static char response[512];
+    static char response[2048];
     if (strcmp(command, "ping") == 0)
         return "PONG: controllerd is responding\n";
     if (strcmp(command, "help") == 0)
