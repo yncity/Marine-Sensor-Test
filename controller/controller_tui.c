@@ -7,6 +7,7 @@
 #include <string.h>
 #include "controllerAsync.h"
 #include "controllerStatus.h"
+#include "controllerJournal.h"
 
 #define COMMAND_CAPACITY 256
 #define MESSAGE_CAPACITY 320
@@ -187,6 +188,12 @@ int main(void)
         snprintf(g_status_view.servo, sizeof(g_status_view.servo),
                  "SERVO: status monitor unavailable");
     }
+
+    // Stage 5-B: collect actual service stdout/stderr.
+    static ControllerJournalMonitor journal_monitor;
+
+    int journal_running =
+        controller_journal_start(&journal_monitor) == 0;
 
     char command[COMMAND_CAPACITY] = {0};
     size_t command_length = 0;
@@ -388,8 +395,10 @@ int main(void)
         draw_screen(command, message);
     }
     unsigned unfinished = controller_async_active(&async_ipc);
-
     endwin();
+
+    if (journal_running)
+        controller_journal_stop(&journal_monitor);
 
     if (status_running)
         controller_status_stop(&status_monitor);
