@@ -344,6 +344,145 @@ static void stop_all_units(char *response, size_t cap)
 #endif
 }
 
+// Query the state of one systemd service
+static void read_unit_state(
+    const char *unit,
+    char *out,
+    size_t cap)
+{
+#ifdef MARINE_MOCK_SYSTEMD
+    (void)unit;
+    snprintf(out, cap, "MOCK_ONLY");
+#else
+    int pipefd[2];
+
+    if (pipe(pipefd) != 0)
+    {
+        snprintf(out, cap, "QUERY_ERROR");
+        return;
+    }
+
+    pid_t child = fork();
+
+    if (child < 0)
+    {
+        close(pipefd[0]);
+        close(pipefd[1]);
+        snprintf(out, cap, "QUERY_ERROR");
+        return;
+    }
+
+    if (child == 0)
+    {
+        close(pipefd[0]);
+
+        if (dup2(pipefd[1], STDOUT_FILENO) < 0)
+            _exit(127);
+
+        close(pipefd[1]);
+
+        execl(
+            "/usr/bin/systemctl",
+            "systemctl",
+            "is-active",
+            unit,
+            (char *)NULL);
+
+        _exit(127);
+    }
+
+    close(pipefd[1]);
+
+    size_t used = 0;
+
+    while (used + 1 < cap)
+    {
+        ssize_t n = read(
+            pipefd[0],
+            out + used,
+            cap - used - 1);
+
+        if (n < 0 && errno == EINTR)
+            continue;
+
+        if (n <= 0)
+            break;
+
+        used += (size_t)n;
+    }
+
+    close(pipefd[0]);
+    out[used] = '\0';
+
+    int status = 0;
+    pid_t waited;
+
+    do
+    {
+        waited = waitpid(child, &status, 0);
+    } while (waited < 0 && errno == EINTR);
+
+    if (waited < 0 ||
+        !WIFEXITED(status) ||
+        WEXITSTATUS(status) == 127)
+    {
+        snprintf(out, cap, "QUERY_ERROR");
+        return;
+    }
+
+    while (used > 0 &&
+           (out[used - 1] == '\n' ||
+            out[used - 1] == '\r'))
+    {
+        out[--used] = '\0';
+    }
+
+    if (used == 0)
+        snprintf(out, cap, "UNKNOWN");
+#endif
+}
+
+// Collect service states
+static void report_service_states(
+    char *response,
+    size_t cap)
+{
+    const char *units[] = {
+        "sonar.service",
+        "dvl.service",
+        "servo.service"};
+
+    const char *names[] = {
+        "SONAR",
+        "DVL",
+        "SERVO"};
+
+    size_t used = 0;
+
+    for (size_t i = 0; i < 3; ++i)
+    {
+        char state[64];
+
+        read_unit_state(
+            units[i],
+            state,
+            sizeof(state));
+
+        int written = snprintf(
+            response + used,
+            cap - used,
+            "%s SERVICE: %s\n",
+            names[i],
+            state);
+
+        if (written < 0 ||
+            (size_t)written >= cap - used)
+            return;
+
+        used += (size_t)written;
+    }
+}
+
 static const char *dispatch(const char *command)
 {
     static char response[512];
@@ -357,7 +496,13 @@ static const char *dispatch(const char *command)
                "AVAILABLE: q (stop all devices)\n"
                "PENDING: status\n";
     if (strcmp(command, "status") == 0)
-        return "NOT_IMPLEMENTED: device health/status is not connected yet\n";
+    {
+        report_service_states(
+            response,
+            sizeof(response));
+
+        return response;
+    }
     if (strcmp(command, "q") == 0)
     {
         stop_all_units(response, sizeof(response));
