@@ -399,7 +399,18 @@ int main(int argc, char *argv[])
     }
     int discarding = 0;
     int exit_code = EXIT_SUCCESS;
+
+    // DVL health tracking
+    DvlHealth dvl_health;
+    dvl_health_init(&dvl_health);
+
+    dvl_health_on_connect(
+        &dvl_health,
+        dvl_health_now_ns());
+
+    // DVL command socket
     DvlCommandSocket dvlCommandSocket = {.fd = -1};
+    dvlCommandSocket.health = &dvl_health;
     if (service_mode && dvl_command_start(&dvlCommandSocket) != 0)
     {
         perror("DVL command socket");
@@ -492,6 +503,12 @@ int main(int argc, char *argv[])
             break;
         }
 
+        // Record received TCP bytes
+        dvl_health_on_bytes(
+            &dvl_health,
+            (size_t)n,
+            dvl_health_now_ns());
+
         // TCP is a byte stream. Split at newline before interpreting each JSON message.
         for (ssize_t i = 0; i < n; ++i)
         {
@@ -501,12 +518,21 @@ int main(int argc, char *argv[])
                 if (!discarding && used > 0)
                 {
                     line[used] = '\0';
+
+                    // Preserve existing JSON storage
                     if (store_message(&samples, line) != 0)
                     {
                         perror("strdup");
                         exit_code = EXIT_FAILURE;
                         goto cleanup;
                     }
+
+                    // Record the completed message
+                    dvl_health_on_line(
+                        &dvl_health,
+                        line,
+                        dvl_health_now_ns(),
+                        is_type(line, "velocity"));
                 }
                 used = 0;
                 discarding = 0;
@@ -517,6 +543,9 @@ int main(int argc, char *argv[])
             if (used + 1 >= MAX_LINE_BYTES)
             {
                 fprintf(stderr, "JSON 메시지가 너무 길어 건너뜁니다.\n");
+
+                dvl_health_on_oversized(&dvl_health);
+
                 used = 0;
                 discarding = 1;
                 continue;

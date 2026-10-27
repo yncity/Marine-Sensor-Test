@@ -494,8 +494,8 @@ static const char *dispatch(const char *command)
                "AVAILABLE: DVL h -x (0.1..100 Hz)\n"
                "AVAILABLE: Servo u/i/o\n"
                "AVAILABLE: q (stop all devices)\n"
-               "AVAILABLE: sonar-health\n"
-               "PENDING: status\n";
+               "AVAILABLE: sonar-health, dvl-health\n"
+               "AVAILABLE: status, q\n";
     if (strcmp(command, "status") == 0)
     {
         report_service_states(
@@ -512,6 +512,15 @@ static const char *dispatch(const char *command)
     if (strncmp(command, "h -", 3) == 0)
     {
         relay_dvl_command(command, response, sizeof(response));
+        return response;
+    }
+    if (strcmp(command, "dvl-health") == 0)
+    {
+        relay_dvl_command(
+            "?",
+            response,
+            sizeof(response));
+
         return response;
     }
     if (strcmp(command, "sonar-health") == 0)
