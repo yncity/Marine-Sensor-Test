@@ -5,7 +5,7 @@ After=network-online.target
 
 [Service]
 Type=simple
-User=ubuntu
+User=kiost
 
 WorkingDirectory=/home/kiost/Marine-Sensor-Test/sdkExample/build/bin
 ExecStart=/home/kiost/Marine-Sensor-Test/sdkExample/build/bin/sdkExample --service
