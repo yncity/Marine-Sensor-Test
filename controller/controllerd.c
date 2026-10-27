@@ -8,6 +8,8 @@
 #include <sys/stat.h>
 #include <sys/un.h>
 #include <sys/time.h>
+#include <sys/types.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 #define DEFAULT_SOCKET "./controller.sock"
@@ -235,6 +237,113 @@ static void relay_servo_command(char key, char *reply, size_t cap)
     close(fd);
 }
 
+// Stop one systemd service
+static int stop_one_unit(const char *unit)
+{
+#ifdef MARINE_MOCK_SYSTEMD
+
+    // MacBook test mode: do not stop any real services
+    (void)unit;
+    return 0;
+
+#else
+
+    pid_t pid = fork();
+
+    if (pid < 0)
+        return -1;
+
+    if (pid == 0)
+    {
+        char *const args[] = {
+            "sudo",
+            "-n",
+            "/usr/bin/systemctl",
+            "stop",
+            (char *)unit,
+            NULL};
+
+        execv("/usr/bin/sudo", args);
+        _exit(127);
+    }
+
+    int status;
+    pid_t done;
+
+    do
+    {
+        done = waitpid(pid, &status, 0);
+    } while (done < 0 && errno == EINTR);
+
+    if (done < 0)
+        return -1;
+
+    return (WIFEXITED(status) &&
+            WEXITSTATUS(status) == 0)
+               ? 0
+               : -1;
+
+#endif
+}
+
+// Stop Sonar, DVL and Servo
+static void stop_all_units(char *response, size_t cap)
+{
+    const char *units[] = {
+        "sonar.service",
+        "dvl.service",
+        "servo.service"};
+
+    const char *names[] = {
+        "SONAR",
+        "DVL",
+        "SERVO"};
+
+    size_t used = 0;
+    int failed = 0;
+
+    for (size_t i = 0; i < 3; ++i)
+    {
+        int result = stop_one_unit(units[i]);
+
+        if (result != 0)
+            ++failed;
+
+#ifdef MARINE_MOCK_SYSTEMD
+        const char *label =
+            result == 0 ? "MOCK_STOP" : "MOCK_FAILED";
+#else
+        const char *label =
+            result == 0 ? "STOPPED" : "STOP_FAILED";
+#endif
+
+        int written = snprintf(
+            response + used,
+            cap - used,
+            "%s: %s\n",
+            names[i],
+            label);
+
+        if (written < 0 ||
+            (size_t)written >= cap - used)
+            return;
+
+        used += (size_t)written;
+    }
+
+#ifdef MARINE_MOCK_SYSTEMD
+    (void)failed;
+
+    snprintf(response + used, cap - used,
+             "SYSTEM: MOCK_TEST_ONLY\n");
+#else
+    snprintf(response + used, cap - used,
+             "SYSTEM: %s\n",
+             failed ? "STOP_INCOMPLETE"
+                    : "ALL_DEVICES_STOPPED");
+#endif
+}
+
 static const char *dispatch(const char *command)
 {
     static char response[512];
@@ -245,11 +354,15 @@ static const char *dispatch(const char *command)
                "AVAILABLE: Sonar r/e/l/v/1-8/p/t/c\n"
                "AVAILABLE: DVL h -x (0.1..100 Hz)\n"
                "AVAILABLE: Servo u/i/o\n"
-               "PENDING: status, q\n";
+               "AVAILABLE: q (stop all devices)\n"
+               "PENDING: status\n";
     if (strcmp(command, "status") == 0)
         return "NOT_IMPLEMENTED: device health/status is not connected yet\n";
     if (strcmp(command, "q") == 0)
-        return "NOT_IMPLEMENTED: global stop is not connected; no device was stopped\n";
+    {
+        stop_all_units(response, sizeof(response));
+        return response;
+    }
     if (strncmp(command, "h -", 3) == 0)
     {
         relay_dvl_command(command, response, sizeof(response));
