@@ -17,7 +17,8 @@ static volatile sig_atomic_t exit_requested = 0;
 static ControllerStatusView g_status_view = {
     "SONAR: checking status...",
     "DVL: checking status...",
-    "SERVO: checking status..."};
+    "SERVO: checking status...",
+    "SYSTEM STATE: checking..."};
 
 static void on_exit_signal(int signo)
 {
@@ -89,9 +90,7 @@ static void draw_screen(const char *command, const char *message)
     attron(A_BOLD);
     draw_text(0, 2, "MARINE SENSOR CONTROLLER", cols - 4);
     attroff(A_BOLD);
-    draw_text(1, 2,
-              "STAGE 5-A | AUTOMATIC HEALTH STATUS | ASYNC IPC",
-              cols - 4);
+    draw_text(1, 2, g_status_view.system, cols - 4);
     draw_rule(2);
 
     draw_text(3, 2, g_status_view.sonar, cols - 4);

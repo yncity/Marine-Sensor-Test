@@ -21,6 +21,7 @@ typedef struct
     char sonar[128];
     char dvl[128];
     char servo[128];
+    char system[128];
 } ControllerStatusView;
 
 typedef struct
@@ -94,12 +95,27 @@ static void controller_status_format(ControllerStatusView *view,
         snprintf(view->sonar, sizeof(view->sonar), "SONAR: status unavailable (controllerd/IPC)");
         snprintf(view->dvl, sizeof(view->dvl), "DVL: status unavailable (controllerd/IPC)");
         snprintf(view->servo, sizeof(view->servo), "SERVO: status unavailable (controllerd/IPC)");
+        snprintf(view->system, sizeof(view->system),
+                 "SYSTEM STATE: UNKNOWN");
         return;
     }
 
     controller_status_device_line(report, "SONAR", view->sonar, sizeof(view->sonar));
     controller_status_device_line(report, "DVL", view->dvl, sizeof(view->dvl));
     controller_status_device_line(report, "SERVO", view->servo, sizeof(view->servo));
+    char system_state[40] = "UNKNOWN";
+
+    (void)controller_status_field(
+        report,
+        "SYSTEM STATE: ",
+        system_state,
+        sizeof(system_state));
+
+    snprintf(
+        view->system,
+        sizeof(view->system),
+        "SYSTEM STATE: %s",
+        system_state);
 }
 
 static void *controller_status_worker(void *arg)
@@ -151,6 +167,10 @@ static int controller_status_start(ControllerStatusMonitor *monitor)
     snprintf(monitor->view.sonar, sizeof(monitor->view.sonar), "SONAR: checking status...");
     snprintf(monitor->view.dvl, sizeof(monitor->view.dvl), "DVL: checking status...");
     snprintf(monitor->view.servo, sizeof(monitor->view.servo), "SERVO: checking status...");
+    snprintf(
+        monitor->view.system,
+        sizeof(monitor->view.system),
+        "SYSTEM STATE: checking...");
 
     if (pthread_mutex_init(&monitor->mutex, NULL) != 0)
         return -1;
