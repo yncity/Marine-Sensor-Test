@@ -32,8 +32,8 @@ std::string getHomeDir()
 }
 
 // 동적 경로 생성 (~/ 확장 문제 완벽 해결)
-const std::string VIDEO_DIR = getHomeDir() + "/TEST/Video/";
-const std::string LOG_DIR = getHomeDir() + "/TEST/Logfile/";
+const std::string VIDEO_DIR = getHomeDir() + "/Marine-Sensor-Test/Video/";
+const std::string LOG_DIR = getHomeDir() + "/Marine-Sensor-Test/Logfile/";
 
 //--------------------------------------------------------------------------------------------------
 SonarApp::SonarApp(bool autoScan)

@@ -1,0 +1,23 @@
+[Unit]
+Description=Marine DVL Service
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+
+WorkingDirectory=/home/kiost/Marine-Sensor-Test
+ExecStart=/home/kiost/Marine-Sensor-Test/dvl_test --service
+
+Restart=on-failure
+RestartSec=10
+
+StandardInput=null
+StandardOutput=journal
+StandardError=journal
+
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target

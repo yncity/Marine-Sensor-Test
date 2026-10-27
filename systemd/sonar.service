@@ -1,0 +1,23 @@
+[Unit]
+Description=Marine Sonar Service
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+
+WorkingDirectory=/home/kiost/Marine-Sensor-Test/sdkExample/build/bin
+ExecStart=/home/kiost/Marine-Sensor-Test/sdkExample/build/bin/sdkExample --service
+
+Restart=on-failure
+RestartSec=10
+
+StandardInput=null
+StandardOutput=journal
+StandardError=journal
+
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target
