@@ -1,6 +1,6 @@
 #ifndef SERVO_COMMAND_SOCKET_H
 #define SERVO_COMMAND_SOCKET_H
-
+#include "servoHealth.h"
 /* Stage 3-B-3: one-byte local IPC receiver for the existing servo service.
  * Portable POSIX C (macOS/Linux); the servo main loop remains the only PWM writer.
  */
@@ -20,6 +20,7 @@ typedef struct
 {
     int fd;
     char path[sizeof(((struct sockaddr_un *)0)->sun_path)];
+    ServoHealth *health;
 } ServoCommandSocket;
 
 static int servo_command_start(ServoCommandSocket *cmd)
@@ -119,10 +120,30 @@ static int servo_command_poll(ServoCommandSocket *cmd,
     struct pollfd request = {.fd = client, .events = POLLIN, .revents = 0};
     int got = poll(&request, 1, 50);
     char key = 0;
+    char health_reply[512];
+
     const char *reply = "ERROR: invalid Servo command\n";
     if (got > 0 && (request.revents & POLLIN) && recv(client, &key, 1, 0) == 1)
     {
-        if (key == 'u' || key == 'i' || key == 'o')
+        if (key == '?')
+        {
+            if (cmd->health != NULL)
+            {
+                servo_health_report(
+                    cmd->health,
+                    health_reply,
+                    sizeof(health_reply));
+
+                reply = health_reply;
+            }
+            else
+            {
+                reply =
+                    "SERVO STATE: UNKNOWN\n"
+                    "ERROR: HEALTH_NOT_CONFIGURED\n";
+            }
+        }
+        else if (key == 'u' || key == 'i' || key == 'o')
         {
             if (apply_key(key, context) == 0)
             {

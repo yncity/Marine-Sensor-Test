@@ -64,8 +64,16 @@ static int set_pulse(const char *duty_path, int pulse_us)
     return 0;
 }
 
+typedef struct
+{
+    const char *duty_path;
+    ServoHealth *health;
+} ServoIpcContext;
+
 static int apply_ipc_servo_key(char key, void *context)
 {
+    ServoIpcContext *ipc = (ServoIpcContext *)context;
+
     int pulse;
 
     switch (key)
@@ -86,7 +94,20 @@ static int apply_ipc_servo_key(char key, void *context)
         return -1;
     }
 
-    return set_pulse((const char *)context, pulse);
+    int rc = set_pulse(ipc->duty_path, pulse);
+
+    if (rc == 0)
+    {
+        servo_health_on_command_ok(
+            ipc->health, key, pulse);
+    }
+    else
+    {
+        servo_health_on_command_fail(
+            ipc->health, key);
+    }
+
+    return rc;
 }
 
 static int setup_terminal(void)
@@ -129,7 +150,15 @@ int main(int argc, char **argv)
     char duty_path[160];
     int result = EXIT_FAILURE;
     int exported_here = 0;
+    ServoHealth servo_health;
+    servo_health_init(&servo_health);
+
     ServoCommandSocket servo_commands = {.fd = -1};
+    servo_commands.health = &servo_health;
+
+    ServoIpcContext ipc_context = {
+        .duty_path = duty_path,
+        .health = &servo_health};
 
     snprintf(export_path, sizeof(export_path), "%s/export", pwmchip);
     snprintf(pwm_dir, sizeof(pwm_dir), "%s/pwm%d", pwmchip, PWM_CHANNEL);
@@ -171,6 +200,10 @@ int main(int argc, char **argv)
         write_number(enable_path, 1) != 0)
         goto cleanup;
 
+    servo_health_on_ready(
+        &servo_health,
+        NEUTRAL_PULSE_US);
+
     struct sigaction sa = {0};
     sa.sa_handler = on_signal;
     sigemptyset(&sa.sa_mask);
@@ -209,7 +242,7 @@ int main(int argc, char **argv)
             if (servo_command_poll(
                     &servo_commands,
                     apply_ipc_servo_key,
-                    duty_path) < 0)
+                    &ipc_context) < 0)
             {
                 perror("servo_command_poll");
                 result = EXIT_FAILURE;

@@ -13,6 +13,8 @@ controller/sonar_health_ipc_mock
 controller/sonar_health_mock
 
 controller/servo_ipc_mock
+controller/servo_health_ipc_mock
+controller/servo_health_mock
 
 dvl_test
 servo
