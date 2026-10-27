@@ -5,7 +5,7 @@
 #include <signal.h>
 #include <stdio.h>
 #include <string.h>
-#include "controllerIpc.h"
+#include "controllerAsync.h"
 
 #define COMMAND_CAPACITY 256
 #define MESSAGE_CAPACITY 320
@@ -84,7 +84,7 @@ static void draw_screen(const char *command, const char *message)
     attron(A_BOLD);
     draw_text(0, 2, "MARINE SENSOR CONTROLLER", cols - 4);
     attroff(A_BOLD);
-    draw_text(1, 2, "STAGE 4-C | ENTER: COMMANDS | INSTANT: SERVO u/i/o", cols - 4);
+    draw_text(1, 2, "STAGE 4-D-1 | ASYNC IPC | SERVO u/i/o", cols - 4);
     draw_rule(2);
 
     draw_text(3, 2, "SONAR  : status not connected (Stage 5)", cols - 4);
@@ -128,6 +128,50 @@ static void draw_screen(const char *command, const char *message)
     refresh();
 }
 
+static void show_ipc_result(
+    char *message,
+    size_t capacity,
+    const char *command,
+    const char *reply,
+    int rc)
+{
+    char compact[240];
+    size_t j = 0;
+
+    for (size_t i = 0;
+         reply[i] != '\0' && j + 1 < sizeof(compact);
+         ++i)
+    {
+        if (reply[i] == '\r')
+            continue;
+
+        if (reply[i] == '\n')
+        {
+            if (reply[i + 1] != '\0' &&
+                j + 3 < sizeof(compact))
+            {
+                compact[j++] = ' ';
+                compact[j++] = '|';
+                compact[j++] = ' ';
+            }
+        }
+        else if ((unsigned char)reply[i] >= 32)
+        {
+            compact[j++] = reply[i];
+        }
+    }
+
+    compact[j] = '\0';
+
+    snprintf(
+        message,
+        capacity,
+        "%s %.40s -> %.235s",
+        rc == 0 ? "IPC" : "IPC FAILED",
+        command,
+        compact);
+}
+
 int main(void)
 {
     setlocale(LC_ALL, "");
@@ -154,20 +198,73 @@ int main(void)
     timeout(100); /* Allows SIGTERM/Ctrl+C to be handled gracefully. */
     (void)curs_set(1);
 
+    static ControllerAsync async_ipc;
+
+    if (controller_async_start(&async_ipc) != 0)
+    {
+        endwin();
+        fputs("Failed to start IPC worker thread\n", stderr);
+        return 1;
+    }
+
     char command[COMMAND_CAPACITY] = {0};
     size_t command_length = 0;
     char message[MESSAGE_CAPACITY] =
-        "Stage 4-C ready: u/i/o instant; other commands require Enter";
+        "Stage 4-D-1 ready: background IPC worker enabled";
 
     draw_screen(command, message);
+    int exit_confirmation = 0;
+
     while (!exit_requested)
     {
+        // Check whether the background IPC request has finished.
+        char completed_command[COMMAND_CAPACITY];
+        char reply[4096];
+        int rc;
+
+        if (controller_async_take(
+                &async_ipc,
+                completed_command,
+                sizeof(completed_command),
+                reply,
+                sizeof(reply),
+                &rc))
+        {
+            show_ipc_result(
+                message,
+                sizeof(message),
+                completed_command,
+                reply,
+                rc);
+
+            draw_screen(command, message);
+        }
+
         int key = getch();
+
         if (key == ERR)
             continue;
 
-        if (key == KEY_F(10) || key == 24) /* Ctrl+X */
+        if (key == KEY_F(10) || key == 24)
+        {
+            if (controller_async_busy(&async_ipc) &&
+                !exit_confirmation)
+            {
+                exit_confirmation = 1;
+
+                snprintf(
+                    message,
+                    sizeof(message),
+                    "IPC active: press F10/Ctrl+X again to exit");
+
+                draw_screen(command, message);
+                continue;
+            }
+
             break;
+        }
+
+        exit_confirmation = 0;
 
         if (key == KEY_RESIZE)
         {
@@ -186,56 +283,37 @@ int main(void)
             }
             else
             {
-                // 1. Send command to controllerd
-                char reply[4096];
+                int result = controller_async_submit(
+                    &async_ipc,
+                    command);
 
-                int rc = controller_ipc_request(
-                    command,
-                    reply,
-                    sizeof(reply));
-
-                // 2. Convert multi-line response into one line
-                char compact[240];
-                size_t j = 0;
-
-                for (size_t i = 0;
-                     reply[i] != '\0' && j + 1 < sizeof(compact);
-                     ++i)
+                if (result == 0)
                 {
-                    if (reply[i] == '\r')
-                        continue;
+                    snprintf(
+                        message,
+                        sizeof(message),
+                        "IPC pending: %.220s",
+                        command);
 
-                    if (reply[i] == '\n')
-                    {
-                        if (reply[i + 1] != '\0' &&
-                            j + 3 < sizeof(compact))
-                        {
-                            compact[j++] = ' ';
-                            compact[j++] = '|';
-                            compact[j++] = ' ';
-                        }
-                    }
-                    else if ((unsigned char)reply[i] >= 32)
-                    {
-                        compact[j++] = reply[i];
-                    }
+                    command[0] = '\0';
+                    command_length = 0;
                 }
-
-                compact[j] = '\0';
-
-                // 3. Display result in MESSAGE area
-                snprintf(
-                    message,
-                    sizeof(message),
-                    "%s %.40s -> %.235s",
-                    rc == 0 ? "IPC" : "IPC FAILED",
-                    command,
-                    compact);
+                else if (result == 1)
+                {
+                    snprintf(
+                        message,
+                        sizeof(message),
+                        "IPC BUSY - not sent: %.200s",
+                        command);
+                }
+                else
+                {
+                    snprintf(
+                        message,
+                        sizeof(message),
+                        "Invalid command - not sent");
+                }
             }
-
-            // 4. Clear command input
-            command[0] = '\0';
-            command_length = 0;
         }
         else if (key == KEY_BACKSPACE || key == 127 || key == 8)
         {
@@ -257,24 +335,33 @@ int main(void)
                     (char)key,
                     '\0'};
 
-                char reply[512];
+                int result = controller_async_submit(
+                    &async_ipc,
+                    servo_command);
 
-                // Send immediately without Enter
-                int rc = controller_ipc_request(
-                    servo_command,
-                    reply,
-                    sizeof(reply));
-
-                // Display only the first response line
-                reply[strcspn(reply, "\r\n")] = '\0';
-
-                snprintf(
-                    message,
-                    sizeof(message),
-                    "%s Servo %c -> %.200s",
-                    rc == 0 ? "IPC" : "IPC FAILED",
-                    (char)key,
-                    reply);
+                if (result == 0)
+                {
+                    snprintf(
+                        message,
+                        sizeof(message),
+                        "Servo %c: IPC pending",
+                        (char)key);
+                }
+                else if (result == 1)
+                {
+                    snprintf(
+                        message,
+                        sizeof(message),
+                        "SERVO BUSY: %c NOT SENT",
+                        (char)key);
+                }
+                else
+                {
+                    snprintf(
+                        message,
+                        sizeof(message),
+                        "Servo command rejected");
+                }
             }
             else if (command_length + 1 < sizeof(command))
             {
@@ -292,8 +379,17 @@ int main(void)
         }
         draw_screen(command, message);
     }
+    int unfinished = controller_async_busy(&async_ipc);
 
     endwin();
+
     puts("controller_tui exited; no device services were stopped.");
+
+    if (unfinished)
+    {
+        puts("WARNING: an IPC request was still active; "
+             "its final outcome is unknown.");
+    }
+
     return 0;
 }

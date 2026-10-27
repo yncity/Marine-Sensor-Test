@@ -5,6 +5,7 @@ controller/controller
 controller/controllerd
 controller/controllerd_mock
 controller/controller_tui
+controller/slow_controllerd_mock
 
 controller/dvl_ipc_mock
 controller/dvl_health_ipc_mock
