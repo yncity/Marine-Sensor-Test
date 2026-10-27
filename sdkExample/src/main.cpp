@@ -13,6 +13,8 @@
 #include "sonarApp.h"
 #include "gpsApp.h"
 #include "opencv2/highgui.hpp"
+#include "sonarCommandSocket.h"
+#include <cstring>
 #include <csignal>
 #include <string>
 
@@ -81,6 +83,13 @@ int main(int argc, char **argv)
     // Serial over Lan ports can be created using the following function, change the IP address and port to suit your needs
     // sdk.ports.createSol("SOL1", false, true, Utils::ipToUint(192, 168, 1, 215), 1001);
 
+    SonarCommandSocket sonarCommandSocket;
+
+    if (g_serviceMode && !sonarCommandSocket.start())
+    {
+        return EXIT_FAILURE;
+    }
+
     bool exitRequested = false;
 
     while (!exitRequested && !g_stopRequested)
@@ -89,6 +98,46 @@ int main(int argc, char **argv)
 
         // SDK 데이터 및 이벤트 처리
         sdk.run();
+
+        if (g_serviceMode)
+        {
+            sonarCommandSocket.poll([&](char key) -> std::string
+                                    {
+
+        // 서비스 모드에서 허용된 명령만 처리
+        if (std::strchr("relv12345678ptc", key) == nullptr)
+        {
+            return "DENIED: key not permitted in Sonar service mode\n";
+        }
+
+        bool sonarFound = false;
+
+        for (App *app : apps)
+        {
+            SonarApp *sonar =
+                dynamic_cast<SonarApp *>(app);
+
+            if (sonar != nullptr)
+            {
+                sonarFound = true;
+
+                // 기존 Sonar 키보드 명령 처리 함수 재사용
+                sonar->doTask(
+                    static_cast<int_t>(key),
+                    appPath
+                );
+            }
+        }
+
+        if (!sonarFound)
+        {
+            return "SONAR_NOT_READY: no Sonar instance discovered\n";
+        }
+
+        return std::string("DISPATCHED: Sonar key '")
+            + key
+            + "' (hardware success not verified)\n"; });
+        }
 
         // 터미널 키보드 입력 처리
         if (!g_serviceMode && Platform::keyboardPressed())

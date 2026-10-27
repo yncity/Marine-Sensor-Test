@@ -13,6 +13,7 @@
 #include <sys/socket.h>
 #include <time.h>
 #include <unistd.h>
+#include "dvlCommandSocket.h"
 
 #define DVL_IP "192.168.1.200"
 #define DVL_PORT 16171
@@ -398,6 +399,13 @@ int main(int argc, char *argv[])
     }
     int discarding = 0;
     int exit_code = EXIT_SUCCESS;
+    DvlCommandSocket dvlCommandSocket = {.fd = -1};
+    if (service_mode && dvl_command_start(&dvlCommandSocket) != 0)
+    {
+        perror("DVL command socket");
+        exit_code = EXIT_FAILURE;
+        goto cleanup;
+    }
     int64_t next_tick = monotonic_ns() + interval_ns;
 
     while (!g_stop_requested)
@@ -412,26 +420,54 @@ int main(int argc, char *argv[])
         }
 
         int64_t remaining_ns = next_tick - now;
-        int timeout_ms = (int)((remaining_ns + 999999) / 1000000);
-        struct pollfd pfd = {.fd = sock, .events = POLLIN};
-        int rc = poll(&pfd, 1, timeout_ms);
+
+        // Calculate poll timeout
+        int timeout_ms =
+            (int)((remaining_ns + 999999) / 1000000);
+
+        // Monitor TCP socket and DVL command socket
+        struct pollfd pfds[2] = {
+            {.fd = sock, .events = POLLIN},
+            {.fd = dvlCommandSocket.fd, .events = POLLIN}};
+
+        nfds_t nfds = service_mode ? 2 : 1;
+
+        int rc = poll(pfds, nfds, timeout_ms);
+
         if (rc < 0)
         {
             if (errno == EINTR)
                 continue;
+
             perror("poll");
             exit_code = EXIT_FAILURE;
             break;
         }
+
         if (rc == 0)
             continue;
-        if (pfd.revents & (POLLERR | POLLNVAL))
+
+        // DVL command received
+        if (service_mode && (pfds[1].revents & POLLIN))
+        {
+            dvl_command_accept(
+                &dvlCommandSocket,
+                &hz,
+                &interval_ns,
+                &next_tick);
+        }
+
+        // TCP socket error
+        if (pfds[0].revents & (POLLERR | POLLNVAL))
         {
             fprintf(stderr, "TCP socket error.\n");
             exit_code = EXIT_FAILURE;
             break;
         }
 
+        // Command only: no TCP data to receive
+        if (!(pfds[0].revents & (POLLIN | POLLHUP)))
+            continue;
         char chunk[8192];
         ssize_t n = recv(sock, chunk, sizeof(chunk), 0);
         if (n < 0)
@@ -503,6 +539,7 @@ int main(int argc, char *argv[])
     }
 
 cleanup:
+    dvl_command_stop(&dvlCommandSocket);
     free(samples.velocity);
     free(samples.position_local);
     free(samples.other);
