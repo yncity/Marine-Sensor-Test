@@ -8,6 +8,7 @@
 #include "controllerAsync.h"
 #include "controllerStatus.h"
 #include "controllerJournal.h"
+#include "controllerLogView.h"
 
 #define COMMAND_CAPACITY 256
 #define MESSAGE_CAPACITY 320
@@ -20,6 +21,7 @@ static ControllerStatusView g_status_view = {
     "DVL: checking status...",
     "SERVO: checking status...",
     "SYSTEM STATE: checking..."};
+static ControllerJournalMonitor *g_journal_monitor = NULL;
 
 static void on_exit_signal(int signo)
 {
@@ -106,9 +108,24 @@ static void draw_screen(const char *command, const char *message)
     attroff(A_BOLD);
     draw_vertical_rule(split1, 7, log_bottom);
     draw_vertical_rule(split2, 7, log_bottom);
-    draw_text(log_top + 1, 2, "Log connection: Stage 5", split1 - 3);
-    draw_text(log_top + 1, split1 + 2, "Log connection: Stage 5", split2 - split1 - 3);
-    draw_text(log_top + 1, split2 + 2, "Log connection: Stage 5", cols - split2 - 3);
+    // Stage 5-C: show actual service journal messages.
+    controller_log_view_draw(
+        g_journal_monitor,
+        CONTROLLER_JOURNAL_SONAR,
+        log_top, log_bottom,
+        2, split1 - 3);
+
+    controller_log_view_draw(
+        g_journal_monitor,
+        CONTROLLER_JOURNAL_DVL,
+        log_top, log_bottom,
+        split1 + 2, split2 - split1 - 3);
+
+    controller_log_view_draw(
+        g_journal_monitor,
+        CONTROLLER_JOURNAL_SERVO,
+        log_top, log_bottom,
+        split2 + 2, cols - split2 - 3);
 
     draw_rule(rows - 5);
     draw_text(rows - 4, 2, "MESSAGE: ", cols - 4);
@@ -194,22 +211,44 @@ int main(void)
 
     int journal_running =
         controller_journal_start(&journal_monitor) == 0;
+    g_journal_monitor =
+        journal_running ? &journal_monitor : NULL;
+
+    unsigned long journal_versions[CONTROLLER_JOURNAL_DEVICES] = {0};
 
     char command[COMMAND_CAPACITY] = {0};
     size_t command_length = 0;
     char message[MESSAGE_CAPACITY] =
-        "Stage 4-D-3 ready: independent IPC and stop handling";
+        "Stage 5-C ready: Health and journal log display";
 
     draw_screen(command, message);
     int exit_confirmation = 0;
 
     while (!exit_requested)
     {
+        int display_changed = 0;
+
+        // Stage 5-A: Health status update
         if (status_running &&
             controller_status_snapshot(
                 &status_monitor,
                 &g_status_view,
                 &status_version))
+        {
+            display_changed = 1;
+        }
+
+        // Stage 5-C: Journal log update
+        if (journal_running &&
+            controller_log_view_changed(
+                &journal_monitor,
+                journal_versions))
+        {
+            display_changed = 1;
+        }
+
+        // Redraw only when data has changed
+        if (display_changed)
         {
             draw_screen(command, message);
         }
