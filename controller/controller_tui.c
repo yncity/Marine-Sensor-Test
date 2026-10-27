@@ -5,6 +5,7 @@
 #include <signal.h>
 #include <stdio.h>
 #include <string.h>
+#include "controllerIpc.h"
 
 /*
  * Stage 4-A: terminal layout and line editing only.
@@ -12,7 +13,7 @@
  */
 #define COMMAND_CAPACITY 256
 #define MESSAGE_CAPACITY 320
-#define MIN_SCREEN_WIDTH  72
+#define MIN_SCREEN_WIDTH 72
 #define MIN_SCREEN_HEIGHT 18
 
 static volatile sig_atomic_t exit_requested = 0;
@@ -87,7 +88,7 @@ static void draw_screen(const char *command, const char *message)
     attron(A_BOLD);
     draw_text(0, 2, "MARINE SENSOR CONTROLLER", cols - 4);
     attroff(A_BOLD);
-    draw_text(1, 2, "STAGE 4-A | UI INPUT ONLY | NO DEVICE COMMANDS ARE SENT", cols - 4);
+    draw_text(1, 2, "STAGE 4-B | ENTER SENDS IPC | SERVO INSTANT KEYS: STAGE 4-C", cols - 4);
     draw_rule(2);
 
     draw_text(3, 2, "SONAR  : status not connected (Stage 5)", cols - 4);
@@ -121,7 +122,7 @@ static void draw_screen(const char *command, const char *message)
     draw_text(input_row, input_x, visible, input_width);
 
     draw_text(rows - 1, 2,
-              "Enter: preview only | Backspace: edit | Ctrl+U: clear | F10/Ctrl+X: UI exit",
+              "Enter: send | Backspace: edit | Ctrl+U: clear | F10/Ctrl+X: UI exit",
               cols - 4);
 
     size_t visible_len = strlen(visible);
@@ -154,12 +155,13 @@ int main(void)
     cbreak();
     noecho();
     keypad(stdscr, TRUE);
-    timeout(100);  /* Allows SIGTERM/Ctrl+C to be handled gracefully. */
+    timeout(100); /* Allows SIGTERM/Ctrl+C to be handled gracefully. */
     (void)curs_set(1);
 
     char command[COMMAND_CAPACITY] = {0};
     size_t command_length = 0;
-    char message[MESSAGE_CAPACITY] = "UI ready (IPC wiring starts in Stage 4-B)";
+    char message[MESSAGE_CAPACITY] =
+        "IPC ready: Enter sends to controllerd; F10/Ctrl+X exits UI only";
 
     draw_screen(command, message);
     while (!exit_requested)
@@ -180,11 +182,62 @@ int main(void)
         if (key == '\n' || key == '\r' || key == KEY_ENTER)
         {
             if (command_length == 0)
-                snprintf(message, sizeof(message), "Empty command (nothing sent)");
+            {
+                snprintf(
+                    message,
+                    sizeof(message),
+                    "Empty command (nothing sent)");
+            }
             else
-                snprintf(message, sizeof(message),
-                         "Input received: %.250s (NOT SENT in Stage 4-A)",
-                         command);
+            {
+                // 1. Send command to controllerd
+                char reply[4096];
+
+                int rc = controller_ipc_request(
+                    command,
+                    reply,
+                    sizeof(reply));
+
+                // 2. Convert multi-line response into one line
+                char compact[240];
+                size_t j = 0;
+
+                for (size_t i = 0;
+                     reply[i] != '\0' && j + 1 < sizeof(compact);
+                     ++i)
+                {
+                    if (reply[i] == '\r')
+                        continue;
+
+                    if (reply[i] == '\n')
+                    {
+                        if (reply[i + 1] != '\0' &&
+                            j + 3 < sizeof(compact))
+                        {
+                            compact[j++] = ' ';
+                            compact[j++] = '|';
+                            compact[j++] = ' ';
+                        }
+                    }
+                    else if ((unsigned char)reply[i] >= 32)
+                    {
+                        compact[j++] = reply[i];
+                    }
+                }
+
+                compact[j] = '\0';
+
+                // 3. Display result in MESSAGE area
+                snprintf(
+                    message,
+                    sizeof(message),
+                    "%s %.40s -> %.235s",
+                    rc == 0 ? "IPC" : "IPC FAILED",
+                    command,
+                    compact);
+            }
+
+            // 4. Clear command input
             command[0] = '\0';
             command_length = 0;
         }
