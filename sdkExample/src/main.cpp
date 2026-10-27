@@ -17,6 +17,7 @@
 #include <cstring>
 #include <csignal>
 #include <string>
+#include <chrono>
 
 using namespace IslSdk;
 
@@ -90,6 +91,8 @@ int main(int argc, char **argv)
         return EXIT_FAILURE;
     }
 
+    const auto sonarServiceStartedAt =
+        std::chrono::steady_clock::now();
     bool exitRequested = false;
 
     while (!exitRequested && !g_stopRequested)
@@ -104,6 +107,34 @@ int main(int argc, char **argv)
             sonarCommandSocket.poll([&](char key) -> std::string
                                     {
 
+        // Sonar health query
+        if (key == '?')
+        {
+            for (App *app : apps)
+            {
+                SonarApp *sonar =
+                    dynamic_cast<SonarApp *>(app);
+
+                if (sonar != nullptr)
+                {
+                    return sonar->healthReport();
+                }
+            }
+
+            // No Sonar instance discovered yet
+            const auto elapsed =
+                std::chrono::steady_clock::now()
+                - sonarServiceStartedAt;
+
+            if (elapsed >= std::chrono::seconds(20))
+            {
+                return "SONAR STATE: ERROR\n"
+                    "ERROR: DISCOVERY_TIMEOUT\n";
+            }
+
+            return "SONAR STATE: STARTING\n"
+                "ERROR: NONE\n";
+        }
         // 서비스 모드에서 허용된 명령만 처리
         if (std::strchr("relv12345678ptc", key) == nullptr)
         {

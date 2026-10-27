@@ -14,6 +14,7 @@
 #include "string"
 #include "logging/logWriter.h"
 #include "memory"
+#include "sonarHealth.h"
 
 //--------------------------------------- Class Definition -----------------------------------------
 
@@ -34,6 +35,10 @@ namespace IslSdk
 
         // 프로그램 종료 시 자원 정리
         void shutdown();
+        std::string healthReport() const
+        {
+            return m_health.report();
+        }
 
         Slot<Sonar &, bool_t, Sonar::Settings::Type> slotSettingsUpdated{this, &SonarApp::callbackSettingsUpdated};
         Slot<Sonar &, const Sonar::HeadIndexes &> slotHeadIndexesAcquired{this, &SonarApp::callbackHeadIndexesAcquired};
@@ -53,6 +58,7 @@ namespace IslSdk
         SonarImage m_texture;
         uint_t m_pingCount;
         bool m_autoScan = false; // 프로그램 시작 시 자동 스캔 여부
+        SonarHealth m_health;
         SonarDataStore sonarDataStore;
         virtual void connectEvent(Device &device);
 

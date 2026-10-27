@@ -6,5 +6,7 @@ controller/dvl_ipc_mock
 controller/sonar_ipc_mock
 controller/servo_ipc_mock
 controller/controllerd_mock
+controler/sonar_health_ipc_mock
+controller/sonar_health_mock
 dvl_test
 servo

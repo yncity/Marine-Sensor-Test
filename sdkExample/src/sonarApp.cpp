@@ -207,6 +207,7 @@ void SonarApp::disconnectSignals(Device &device)
     sonar.onPwrAndTemp.disconnect(slotPwrAndTemp);
     sonar.onMotorSlip.disconnect(slotMotorSlip);
     sonar.onMotorMoveComplete.disconnect(slotMotorMoveComplete);
+    m_health.onDisconnected();
 }
 //--------------------------------------------------------------------------------------------------
 void SonarApp::doTask(int_t key, const std::string &path)
@@ -231,6 +232,7 @@ void SonarApp::doTask(int_t key, const std::string &path)
         {
             // 소나 스캔만 시작
             sonar.startScanning();
+            m_health.onScanRequested();
             break;
         }
 
@@ -245,6 +247,7 @@ void SonarApp::doTask(int_t key, const std::string &path)
 
             // 스캔 정지
             sonar.stopScanning();
+            m_health.onScanStopped();
 
             // GUI 닫기
             closeViewer();
@@ -657,6 +660,7 @@ void SonarApp::shutdown()
 {
     // 로그 정상 종료
     stopLogRecording();
+    m_health.onScanStopped();
 
     // 프로그램 종료 시 장치 스캔 정지 요청
     if (m_device)
@@ -691,9 +695,11 @@ void SonarApp::connectEvent(Device &device)
     m_texture.useBilinerInterpolation = false;
     m_texture.setBuffer(sonar.settings.setup.imageDataPoint, Sonar::maxAngle / Math::abs(sonar.settings.setup.stepSize), true);
     m_texture.setSectorArea(0, sonar.settings.setup.maxRangeMm, sonar.settings.setup.sectorStart, sonar.settings.setup.sectorSize);
+    m_health.onConnected();
     if (m_autoScan && !sonar.bootloaderMode())
     {
         sonar.startScanning();
+        m_health.onScanRequested();
 
         Debug::log(
             Debug::Severity::Notice,
@@ -750,6 +756,8 @@ void SonarApp::callbackSettingsUpdated(Sonar &sonar, bool_t ok, Sonar::Settings:
 //--------------------------------------------------------------------------------------------------
 void SonarApp::callbackHeadIndexesAcquired(Sonar &sonar, const Sonar::HeadIndexes &data)
 {
+    m_health.onHeadSync(
+        data.state == Sonar::HeadIndexes::State::Ok);
     Debug::log(Debug::Severity::Info, name.c_str(), "Head Sync:%s. Slippage:%i", data.state == Sonar::HeadIndexes::State::Ok ? "ok" : "error", data.slippage);
 }
 //--------------------------------------------------------------------------------------------------
@@ -761,6 +769,7 @@ void SonarApp::callbackPingData(Sonar &sonar, const Sonar::Ping &ping)
     txPulseLengthMm = Math::max<uint_t>(txPulseLengthMm, 150);
 
     sonarDataStore.add(ping, txPulseLengthMm);
+    m_health.onPing();
 
     m_hasPing = true;
     m_imageDirty = true;
@@ -947,6 +956,7 @@ void SonarApp::callbackPwrAndTemp(Sonar &sonar, const Sonar::CpuPowerTemp &data)
 //--------------------------------------------------------------------------------------------------
 void SonarApp::callbackMotorSlip(Sonar &sonar)
 {
+    m_health.onMotorSlip();
     Debug::log(Debug::Severity::Info, name.c_str(), "Motor has slipped");
 }
 //--------------------------------------------------------------------------------------------------
