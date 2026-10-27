@@ -44,6 +44,7 @@ typedef struct
     int thread_started;
     int online;
     unsigned long version;
+    unsigned long long total_lines;
     size_t write_pos;
     size_t count;
     char diagnostic[CONTROLLER_JOURNAL_DIAGNOSTIC_LENGTH];
@@ -62,8 +63,7 @@ typedef struct
 } ControllerJournalWorkerArg;
 
 static const char *const controller_journal_units[CONTROLLER_JOURNAL_DEVICES] = {
-    "sonar.service", "dvl.service", "servo.service"
-};
+    "sonar.service", "dvl.service", "servo.service"};
 
 static void controller_journal_set_diagnostic(
     ControllerJournalStream *stream, const char *text, int online)
@@ -85,7 +85,10 @@ static void controller_journal_store_line(ControllerJournalStream *stream,
     stream->write_pos = (stream->write_pos + 1) % CONTROLLER_JOURNAL_KEEP_LINES;
     if (stream->count < CONTROLLER_JOURNAL_KEEP_LINES)
         ++stream->count;
+
     ++stream->version;
+    ++stream->total_lines;
+
     pthread_mutex_unlock(&stream->mutex);
 }
 
@@ -98,7 +101,7 @@ typedef struct
 } ControllerJournalLine;
 
 static void controller_journal_flush_line(ControllerJournalStream *stream,
-                                           ControllerJournalLine *line)
+                                          ControllerJournalLine *line)
 {
     if (line->truncated)
     {
@@ -191,7 +194,9 @@ static void controller_journal_reap(pid_t child, int stopping)
         (void)nanosleep(&pause_time, NULL);
     }
     (void)kill(child, SIGKILL);
-    while (waitpid(child, &status, 0) < 0 && errno == EINTR) { }
+    while (waitpid(child, &status, 0) < 0 && errno == EINTR)
+    {
+    }
 }
 
 static void *controller_journal_worker(void *arg)
@@ -210,7 +215,8 @@ static void *controller_journal_worker(void *arg)
     }
     if (pipe(errors) != 0)
     {
-        close(output[0]); close(output[1]);
+        close(output[0]);
+        close(output[1]);
         controller_journal_set_diagnostic(stream, "Cannot create journal stderr pipe", 0);
         return NULL;
     }
@@ -218,8 +224,10 @@ static void *controller_journal_worker(void *arg)
     pid_t child = fork();
     if (child < 0)
     {
-        close(output[0]); close(output[1]);
-        close(errors[0]); close(errors[1]);
+        close(output[0]);
+        close(output[1]);
+        close(errors[0]);
+        close(errors[1]);
         controller_journal_set_diagnostic(stream, "Cannot fork journalctl", 0);
         return NULL;
     }
@@ -234,8 +242,7 @@ static void *controller_journal_worker(void *arg)
         close(errors[1]);
         char *const argv[] = {
             "journalctl", "--no-pager", "--boot", "--follow",
-            "--lines=20", "--output=cat", "--unit", (char *)unit, NULL
-        };
+            "--lines=20", "--output=cat", "--unit", (char *)unit, NULL};
         execvp("journalctl", argv);
         static const char fail[] = "Could not execute journalctl\n";
         (void)write(STDERR_FILENO, fail, sizeof(fail) - 1);
@@ -318,8 +325,10 @@ static void *controller_journal_worker(void *arg)
         err_line[err_used] = '\0';
         controller_journal_set_diagnostic(stream, err_line, -1);
     }
-    if (out_open) close(output[0]);
-    if (err_open) close(errors[0]);
+    if (out_open)
+        close(output[0]);
+    if (err_open)
+        close(errors[0]);
     controller_journal_reap(child, atomic_load(&stream->stop));
     if (!atomic_load(&stream->stop))
     {
@@ -351,7 +360,8 @@ static inline int controller_journal_start(ControllerJournalMonitor *monitor)
     for (int i = 0; i < CONTROLLER_JOURNAL_DEVICES; ++i)
     {
         ControllerJournalWorkerArg *arg = malloc(sizeof(*arg));
-        if (!arg) goto failure;
+        if (!arg)
+            goto failure;
         arg->stream = &monitor->stream[i];
         arg->unit = controller_journal_units[i];
         if (pthread_create(&monitor->stream[i].thread, NULL,
@@ -387,6 +397,40 @@ static inline void controller_journal_stop(ControllerJournalMonitor *monitor)
         pthread_mutex_destroy(&monitor->stream[i].mutex);
 }
 
+// Read journal statistics for each device.
+static inline void controller_journal_stats(
+    ControllerJournalMonitor *monitor,
+    enum ControllerJournalDevice device,
+    unsigned long *version,
+    unsigned long long *total_lines,
+    size_t *retained,
+    int *online)
+{
+    if (!monitor ||
+        (int)device < 0 ||
+        (int)device >= CONTROLLER_JOURNAL_DEVICES)
+        return;
+
+    ControllerJournalStream *s =
+        &monitor->stream[(int)device];
+
+    pthread_mutex_lock(&s->mutex);
+
+    if (version)
+        *version = s->version;
+
+    if (total_lines)
+        *total_lines = s->total_lines;
+
+    if (retained)
+        *retained = s->count;
+
+    if (online)
+        *online = s->online;
+
+    pthread_mutex_unlock(&s->mutex);
+}
+
 /* Thread-safe snapshot for Stage 5-C (chronological order).
  * newest_offset=0 means newest lines; larger values scroll into history.
  * 'out' must hold max_lines arrays of CONTROLLER_JOURNAL_LINE_LENGTH.
@@ -403,17 +447,21 @@ static inline size_t controller_journal_snapshot(
         return 0;
     ControllerJournalStream *s = &monitor->stream[(int)device];
     pthread_mutex_lock(&s->mutex);
-    if (version) *version = s->version;
-    if (online) *online = s->online;
+    if (version)
+        *version = s->version;
+    if (online)
+        *online = s->online;
     if (diagnostic && diagnostic_capacity)
         snprintf(diagnostic, diagnostic_capacity, "%s", s->diagnostic);
     size_t count = 0;
     if (newest_offset < s->count)
     {
         count = s->count - newest_offset;
-        if (count > max_lines) count = max_lines;
+        if (count > max_lines)
+            count = max_lines;
         size_t begin = (s->write_pos + CONTROLLER_JOURNAL_KEEP_LINES -
-                        newest_offset - count) % CONTROLLER_JOURNAL_KEEP_LINES;
+                        newest_offset - count) %
+                       CONTROLLER_JOURNAL_KEEP_LINES;
         for (size_t i = 0; i < count; ++i)
             memcpy(out[i], s->lines[(begin + i) % CONTROLLER_JOURNAL_KEEP_LINES],
                    CONTROLLER_JOURNAL_LINE_LENGTH);

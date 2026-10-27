@@ -22,6 +22,7 @@ static ControllerStatusView g_status_view = {
     "SERVO: checking status...",
     "SYSTEM STATE: checking..."};
 static ControllerJournalMonitor *g_journal_monitor = NULL;
+static ControllerLogViewState g_log_view = {0};
 
 static void on_exit_signal(int signo)
 {
@@ -101,10 +102,36 @@ static void draw_screen(const char *command, const char *message)
     draw_text(5, 2, g_status_view.servo, cols - 4);
     draw_rule(6);
 
+    char title[96];
+
     attron(A_BOLD);
-    draw_text(7, 2, "SONAR OUTPUT", split1 - 3);
-    draw_text(7, split1 + 2, "DVL OUTPUT", split2 - split1 - 3);
-    draw_text(7, split2 + 2, "SERVO OUTPUT", cols - split2 - 3);
+
+    snprintf(
+        title, sizeof(title),
+        "%c SONAR OUTPUT %s",
+        g_log_view.selected == 0 ? '>' : ' ',
+        g_log_view.offset[0] ? "[HISTORY]" : "[LIVE]");
+
+    draw_text(7, 2, title, split1 - 3);
+
+    snprintf(
+        title, sizeof(title),
+        "%c DVL OUTPUT %s",
+        g_log_view.selected == 1 ? '>' : ' ',
+        g_log_view.offset[1] ? "[HISTORY]" : "[LIVE]");
+
+    draw_text(7, split1 + 2, title,
+              split2 - split1 - 3);
+
+    snprintf(
+        title, sizeof(title),
+        "%c SERVO OUTPUT %s",
+        g_log_view.selected == 2 ? '>' : ' ',
+        g_log_view.offset[2] ? "[HISTORY]" : "[LIVE]");
+
+    draw_text(7, split2 + 2, title,
+              cols - split2 - 3);
+
     attroff(A_BOLD);
     draw_vertical_rule(split1, 7, log_bottom);
     draw_vertical_rule(split2, 7, log_bottom);
@@ -113,19 +140,22 @@ static void draw_screen(const char *command, const char *message)
         g_journal_monitor,
         CONTROLLER_JOURNAL_SONAR,
         log_top, log_bottom,
-        2, split1 - 3);
+        2, split1 - 3,
+        g_log_view.offset[CONTROLLER_JOURNAL_SONAR]);
 
     controller_log_view_draw(
         g_journal_monitor,
         CONTROLLER_JOURNAL_DVL,
         log_top, log_bottom,
-        split1 + 2, split2 - split1 - 3);
+        split1 + 2, split2 - split1 - 3,
+        g_log_view.offset[CONTROLLER_JOURNAL_DVL]);
 
     controller_log_view_draw(
         g_journal_monitor,
         CONTROLLER_JOURNAL_SERVO,
         log_top, log_bottom,
-        split2 + 2, cols - split2 - 3);
+        split2 + 2, cols - split2 - 3,
+        g_log_view.offset[CONTROLLER_JOURNAL_SERVO]);
 
     draw_rule(rows - 5);
     draw_text(rows - 4, 2, "MESSAGE: ", cols - 4);
@@ -141,9 +171,10 @@ static void draw_screen(const char *command, const char *message)
         visible = command + (length - (size_t)input_width);
     draw_text(input_row, input_x, visible, input_width);
 
-    draw_text(rows - 1, 2,
-              "u/i/o: Servo instant | Enter: command | Ctrl+U: clear | F10/Ctrl+X: exit",
-              cols - 4);
+    draw_text(
+        rows - 1, 2,
+        "Tab: pane | PgUp/PgDn: scroll | Home/End: history/live | F10: exit",
+        cols - 4);
 
     size_t visible_len = strlen(visible);
     if (visible_len > (size_t)input_width)
@@ -214,12 +245,10 @@ int main(void)
     g_journal_monitor =
         journal_running ? &journal_monitor : NULL;
 
-    unsigned long journal_versions[CONTROLLER_JOURNAL_DEVICES] = {0};
-
     char command[COMMAND_CAPACITY] = {0};
     size_t command_length = 0;
     char message[MESSAGE_CAPACITY] =
-        "Stage 5-C ready: Health and journal log display";
+        "Stage 5-D ready: live logs and independent scrolling";
 
     draw_screen(command, message);
     int exit_confirmation = 0;
@@ -238,11 +267,17 @@ int main(void)
             display_changed = 1;
         }
 
-        // Stage 5-C: Journal log update
+        // Stage 5-D: Journal update and scroll tracking
+        int log_rows = getmaxy(stdscr) - 13;
+
+        if (log_rows < 1)
+            log_rows = 1;
+
         if (journal_running &&
             controller_log_view_changed(
                 &journal_monitor,
-                journal_versions))
+                &g_log_view,
+                log_rows))
         {
             display_changed = 1;
         }
@@ -312,6 +347,29 @@ int main(void)
         exit_confirmation = 0;
 
         if (key == KEY_RESIZE)
+        {
+            int visible = getmaxy(stdscr) - 13;
+
+            if (visible < 1)
+                visible = 1;
+
+            if (journal_running)
+            {
+                (void)controller_log_view_changed(
+                    &journal_monitor,
+                    &g_log_view,
+                    visible);
+            }
+
+            draw_screen(command, message);
+            continue;
+        }
+
+        if (controller_log_view_key(
+                g_journal_monitor,
+                &g_log_view,
+                key,
+                log_rows))
         {
             draw_screen(command, message);
             continue;
