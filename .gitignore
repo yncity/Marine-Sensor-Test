@@ -1,23 +1,16 @@
 build/
 .vscode/
 
+# Controller binaries
 controller/controller
 controller/controllerd
-controller/controllerd_mock
 controller/controller_tui
-controller/slow_controllerd_mock
 
-controller/dvl_ipc_mock
-controller/dvl_health_ipc_mock
-controller/dvl_health_mock
-
-controller/sonar_ipc_mock
-controller/sonar_health_ipc_mock
-controller/sonar_health_mock
-
-controller/servo_ipc_mock
-controller/servo_health_ipc_mock
-controller/servo_health_mock
-
+# Sensor binaries
 dvl_test
 servo
+
+# macOS-generated files
+.DS_Store
+._*
+*.dSYM/

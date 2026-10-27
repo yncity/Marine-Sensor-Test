@@ -240,14 +240,6 @@ static void relay_servo_command(char key, char *reply, size_t cap)
 // Stop one systemd service
 static int stop_one_unit(const char *unit)
 {
-#ifdef MARINE_MOCK_SYSTEMD
-
-    // MacBook test mode: do not stop any real services
-    (void)unit;
-    return 0;
-
-#else
-
     pid_t pid = fork();
 
     if (pid < 0)
@@ -282,8 +274,6 @@ static int stop_one_unit(const char *unit)
             WEXITSTATUS(status) == 0)
                ? 0
                : -1;
-
-#endif
 }
 
 // Stop Sonar, DVL and Servo
@@ -309,13 +299,8 @@ static void stop_all_units(char *response, size_t cap)
         if (result != 0)
             ++failed;
 
-#ifdef MARINE_MOCK_SYSTEMD
-        const char *label =
-            result == 0 ? "MOCK_STOP" : "MOCK_FAILED";
-#else
         const char *label =
             result == 0 ? "STOPPED" : "STOP_FAILED";
-#endif
 
         int written = snprintf(
             response + used,
@@ -331,17 +316,10 @@ static void stop_all_units(char *response, size_t cap)
         used += (size_t)written;
     }
 
-#ifdef MARINE_MOCK_SYSTEMD
-    (void)failed;
-
-    snprintf(response + used, cap - used,
-             "SYSTEM: MOCK_TEST_ONLY\n");
-#else
     snprintf(response + used, cap - used,
              "SYSTEM: %s\n",
              failed ? "STOP_INCOMPLETE"
                     : "ALL_DEVICES_STOPPED");
-#endif
 }
 
 // Query the state of one systemd service
@@ -350,10 +328,6 @@ static void read_unit_state(
     char *out,
     size_t cap)
 {
-#ifdef MARINE_MOCK_SYSTEMD
-    (void)unit;
-    snprintf(out, cap, "MOCK_ONLY");
-#else
     int pipefd[2];
 
     if (pipe(pipefd) != 0)
@@ -439,7 +413,6 @@ static void read_unit_state(
 
     if (used == 0)
         snprintf(out, cap, "UNKNOWN");
-#endif
 }
 
 // Collect service states
@@ -482,8 +455,7 @@ static void report_service_states(char *response, size_t cap)
             sizeof(service));
 
         // 2. Request device health via IPC
-        if (strcmp(service, "active") == 0 ||
-            strcmp(service, "MOCK_ONLY") == 0)
+        if (strcmp(service, "active") == 0)
         {
             if (i == 0)
             {
@@ -607,15 +579,10 @@ static void report_service_states(char *response, size_t cap)
         used += (size_t)written;
     }
 
-    // 5. Overall result
-#ifdef MARINE_MOCK_SYSTEMD
-    const char *summary = "MOCK_ONLY";
-#else
     const char *summary =
         stopped == 3 ? "STOPPED" : failed           ? "DEGRADED"
                                : stopped || pending ? "PARTIAL"
                                                     : "OPERATIONAL";
-#endif
 
     (void)failed;
     (void)stopped;
