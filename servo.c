@@ -9,6 +9,7 @@
 #include <termios.h>
 #include <time.h>
 #include <unistd.h>
+#include "servoCommandSocket.h"
 
 #define DEFAULT_PWMCHIP "/sys/class/pwm/pwmchip0"
 #define PWM_CHANNEL 0
@@ -63,6 +64,31 @@ static int set_pulse(const char *duty_path, int pulse_us)
     return 0;
 }
 
+static int apply_ipc_servo_key(char key, void *context)
+{
+    int pulse;
+
+    switch (key)
+    {
+    case 'u':
+        pulse = MIN_PULSE_US;
+        break;
+
+    case 'i':
+        pulse = NEUTRAL_PULSE_US;
+        break;
+
+    case 'o':
+        pulse = MAX_PULSE_US;
+        break;
+
+    default:
+        return -1;
+    }
+
+    return set_pulse((const char *)context, pulse);
+}
+
 static int setup_terminal(void)
 {
     if (!isatty(STDIN_FILENO) || tcgetattr(STDIN_FILENO, &old_tty) < 0)
@@ -103,6 +129,7 @@ int main(int argc, char **argv)
     char duty_path[160];
     int result = EXIT_FAILURE;
     int exported_here = 0;
+    ServoCommandSocket servo_commands = {.fd = -1};
 
     snprintf(export_path, sizeof(export_path), "%s/export", pwmchip);
     snprintf(pwm_dir, sizeof(pwm_dir), "%s/pwm%d", pwmchip, PWM_CHANNEL);
@@ -154,13 +181,19 @@ int main(int argc, char **argv)
         goto cleanup;
     }
 
+    if (service_mode && servo_command_start(&servo_commands) != 0)
+    {
+        perror("servo_command_start");
+        goto cleanup;
+    }
+
     puts("AGFRC A35BHLP / hardware PWM test");
     puts("GPIO18 (physical pin 12), 333 Hz");
     puts("Starting at neutral (1520 us). Do not use end positions before checking clearance.");
     if (service_mode)
     {
-        puts("Service mode: PWM initialized; awaiting control integration.");
-        puts("Stop with SIGTERM or SIGINT. IPC commands will be added in stage 3.");
+        puts("Service mode: PWM initialized; IPC commands u/i/o ready.");
+        puts("Stop with SIGTERM or SIGINT.");
     }
     else
     {
@@ -171,11 +204,17 @@ int main(int argc, char **argv)
     result = EXIT_SUCCESS;
     if (service_mode)
     {
-        /* Keep running without stdin; wake periodically to check stop flag. */
         while (running)
         {
-            const struct timespec delay = {.tv_sec = 0, .tv_nsec = 100000000L};
-            nanosleep(&delay, NULL);
+            if (servo_command_poll(
+                    &servo_commands,
+                    apply_ipc_servo_key,
+                    duty_path) < 0)
+            {
+                perror("servo_command_poll");
+                result = EXIT_FAILURE;
+                break;
+            }
         }
     }
     else
@@ -219,6 +258,7 @@ int main(int argc, char **argv)
     }
 
 cleanup:
+    servo_command_stop(&servo_commands);
     /* Stopping PWM also releases servo holding force. */
     (void)write_number(enable_path, 0);
     if (exported_here)

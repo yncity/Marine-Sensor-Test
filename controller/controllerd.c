@@ -152,13 +152,102 @@ static void relay_dvl_command(const char *command, char *reply, size_t cap)
     close(fd);
 }
 
+static const char *servo_socket_path(void)
+{
+    const char *custom = getenv("MARINE_SERVO_SOCKET");
+
+    if (custom && custom[0])
+        return custom;
+
+    static char path[108];
+
+    snprintf(path, sizeof(path),
+             "/tmp/marine-servo-%lu.sock",
+             (unsigned long)getuid());
+
+    return path;
+}
+
+static void relay_servo_command(char key, char *reply, size_t cap)
+{
+    struct sockaddr_un address = {0};
+    address.sun_family = AF_UNIX;
+
+    const char *path = servo_socket_path();
+
+    if (strlen(path) >= sizeof(address.sun_path))
+    {
+        snprintf(reply, cap, "ERROR: Servo socket path too long\n");
+        return;
+    }
+
+    strcpy(address.sun_path, path);
+
+    int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+
+    if (fd < 0)
+    {
+        snprintf(reply, cap,
+                 "ERROR: Servo socket creation failed: %s\n",
+                 strerror(errno));
+        return;
+    }
+
+    struct timeval timeout = {
+        .tv_sec = 2,
+        .tv_usec = 0};
+
+    (void)setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO,
+                     &timeout, sizeof(timeout));
+
+    (void)setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO,
+                     &timeout, sizeof(timeout));
+
+    if (connect(fd, (struct sockaddr *)&address,
+                sizeof(address)) != 0)
+    {
+        snprintf(reply, cap,
+                 "SERVO_OFFLINE: %s\n", strerror(errno));
+        close(fd);
+        return;
+    }
+
+#if defined(MSG_NOSIGNAL)
+    ssize_t written = send(fd, &key, 1, MSG_NOSIGNAL);
+#else
+    ssize_t written = send(fd, &key, 1, 0);
+#endif
+
+    if (written != 1)
+    {
+        snprintf(reply, cap, "ERROR: Servo command send failed\n");
+        close(fd);
+        return;
+    }
+
+    ssize_t count = recv(fd, reply, cap - 1, 0);
+
+    if (count > 0)
+        reply[count] = '\0';
+    else
+        snprintf(reply, cap,
+                 "ERROR: Servo did not acknowledge command\n");
+    ƒ
+
+        close(fd);
+}
+
 static const char *dispatch(const char *command)
 {
     static char response[512];
     if (strcmp(command, "ping") == 0)
         return "PONG: controllerd is responding\n";
     if (strcmp(command, "help") == 0)
-        return "AVAILABLE: ping, help, Sonar r/e/l/v/1-8/p/t/c\nAVAILABLE: h -x (DVL absolute Hz 0.1..100)\nPENDING: status, q, servo u/i/o\n";
+        return "AVAILABLE: ping, help\n"
+               "AVAILABLE: Sonar r/e/l/v/1-8/p/t/c\n"
+               "AVAILABLE: DVL h -x (0.1..100 Hz)\n"
+               "AVAILABLE: Servo u/i/o\n"
+               "PENDING: status, q\n";
     if (strcmp(command, "status") == 0)
         return "NOT_IMPLEMENTED: device health/status is not connected yet\n";
     if (strcmp(command, "q") == 0)
@@ -166,6 +255,16 @@ static const char *dispatch(const char *command)
     if (strncmp(command, "h -", 3) == 0)
     {
         relay_dvl_command(command, response, sizeof(response));
+        return response;
+    }
+    if (strlen(command) == 1 &&
+        strchr("uio", command[0]) != NULL)
+    {
+        relay_servo_command(
+            command[0],
+            response,
+            sizeof(response));
+
         return response;
     }
     if (strlen(command) == 1 && is_allowed_sonar_key(command[0]))

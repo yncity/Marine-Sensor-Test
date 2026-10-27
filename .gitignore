@@ -4,4 +4,6 @@ controller/controller
 controller/controllerd
 controller/dvl_ipc_mock
 controller/sonar_ipc_mock
+controller/servo_ipc_mock
 dvl_test
+servo
