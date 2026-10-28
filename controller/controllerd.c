@@ -237,29 +237,37 @@ static void relay_servo_command(char key, char *reply, size_t cap)
     close(fd);
 }
 
-// Stop one systemd service
-static int stop_one_unit(const char *unit)
+// Stop devices using the desktop stop script
+static void stop_all_devices(char *response, size_t cap)
 {
+    const char *script = getenv("MARINE_STOP_SCRIPT");
+
+    if (!script || script[0] != '/' ||
+        access(script, X_OK) != 0)
+    {
+        snprintf(response, cap,
+                 "ERROR: MARINE_STOP_SCRIPT missing or not executable\n"
+                 "SYSTEM: STOP_INCOMPLETE\n");
+        return;
+    }
+
     pid_t pid = fork();
 
     if (pid < 0)
-        return -1;
+    {
+        snprintf(response, cap,
+                 "ERROR: Could not start marine-stop.sh\n"
+                 "SYSTEM: STOP_INCOMPLETE\n");
+        return;
+    }
 
     if (pid == 0)
     {
-        char *const args[] = {
-            "sudo",
-            "-n",
-            "/usr/bin/systemctl",
-            "stop",
-            (char *)unit,
-            NULL};
-
-        execv("/usr/bin/sudo", args);
+        execl(script, script, (char *)NULL);
         _exit(127);
     }
 
-    int status;
+    int status = 0;
     pid_t done;
 
     do
@@ -267,162 +275,22 @@ static int stop_one_unit(const char *unit)
         done = waitpid(pid, &status, 0);
     } while (done < 0 && errno == EINTR);
 
-    if (done < 0)
-        return -1;
-
-    return (WIFEXITED(status) &&
-            WEXITSTATUS(status) == 0)
-               ? 0
-               : -1;
-}
-
-// Stop Sonar, DVL and Servo
-static void stop_all_units(char *response, size_t cap)
-{
-    const char *units[] = {
-        "sonar.service",
-        "dvl.service",
-        "servo.service"};
-
-    const char *names[] = {
-        "SONAR",
-        "DVL",
-        "SERVO"};
-
-    size_t used = 0;
-    int failed = 0;
-
-    for (size_t i = 0; i < 3; ++i)
+    if (done < 0 || !WIFEXITED(status) ||
+        WEXITSTATUS(status) != 0)
     {
-        int result = stop_one_unit(units[i]);
-
-        if (result != 0)
-            ++failed;
-
-        const char *label =
-            result == 0 ? "STOPPED" : "STOP_FAILED";
-
-        int written = snprintf(
-            response + used,
-            cap - used,
-            "%s: %s\n",
-            names[i],
-            label);
-
-        if (written < 0 ||
-            (size_t)written >= cap - used)
-            return;
-
-        used += (size_t)written;
-    }
-
-    snprintf(response + used, cap - used,
-             "SYSTEM: %s\n",
-             failed ? "STOP_INCOMPLETE"
-                    : "ALL_DEVICES_STOPPED");
-}
-
-// Query the state of one systemd service
-static void read_unit_state(
-    const char *unit,
-    char *out,
-    size_t cap)
-{
-    int pipefd[2];
-
-    if (pipe(pipefd) != 0)
-    {
-        snprintf(out, cap, "QUERY_ERROR");
+        snprintf(response, cap,
+                 "ERROR: One or more devices failed to stop\n"
+                 "SYSTEM: STOP_INCOMPLETE\n");
         return;
     }
 
-    pid_t child = fork();
-
-    if (child < 0)
-    {
-        close(pipefd[0]);
-        close(pipefd[1]);
-        snprintf(out, cap, "QUERY_ERROR");
-        return;
-    }
-
-    if (child == 0)
-    {
-        close(pipefd[0]);
-
-        if (dup2(pipefd[1], STDOUT_FILENO) < 0)
-            _exit(127);
-
-        close(pipefd[1]);
-
-        execl(
-            "/usr/bin/systemctl",
-            "systemctl",
-            "is-active",
-            unit,
-            (char *)NULL);
-
-        _exit(127);
-    }
-
-    close(pipefd[1]);
-
-    size_t used = 0;
-
-    while (used + 1 < cap)
-    {
-        ssize_t n = read(
-            pipefd[0],
-            out + used,
-            cap - used - 1);
-
-        if (n < 0 && errno == EINTR)
-            continue;
-
-        if (n <= 0)
-            break;
-
-        used += (size_t)n;
-    }
-
-    close(pipefd[0]);
-    out[used] = '\0';
-
-    int status = 0;
-    pid_t waited;
-
-    do
-    {
-        waited = waitpid(child, &status, 0);
-    } while (waited < 0 && errno == EINTR);
-
-    if (waited < 0 ||
-        !WIFEXITED(status) ||
-        WEXITSTATUS(status) == 127)
-    {
-        snprintf(out, cap, "QUERY_ERROR");
-        return;
-    }
-
-    while (used > 0 &&
-           (out[used - 1] == '\n' ||
-            out[used - 1] == '\r'))
-    {
-        out[--used] = '\0';
-    }
-
-    if (used == 0)
-        snprintf(out, cap, "UNKNOWN");
+    snprintf(response, cap,
+             "SYSTEM: ALL_DEVICES_STOPPED\n");
 }
 
-// Collect service states
-static void report_service_states(char *response, size_t cap)
+// Report device states using IPC health responses
+static void report_ipc_states(char *response, size_t cap)
 {
-    const char *units[] = {
-        "sonar.service",
-        "dvl.service",
-        "servo.service"};
-
     const char *names[] = {
         "SONAR", "DVL", "SERVO"};
 
@@ -431,9 +299,14 @@ static void report_service_states(char *response, size_t cap)
         "DVL STATE: ",
         "SERVO STATE: "};
 
+    const char *paths[] = {
+        sonar_socket_path(),
+        dvl_socket_path(),
+        servo_socket_path()};
+
     size_t used = 0;
-    int failed = 0;
     int stopped = 0;
+    int failed = 0;
     int pending = 0;
 
     if (cap == 0)
@@ -443,110 +316,66 @@ static void report_service_states(char *response, size_t cap)
 
     for (size_t i = 0; i < 3; ++i)
     {
-        char service[64];
-        char health[512] = {0};
         char raw[512] = {0};
+        char health[512] = {0};
         char state[32] = "UNKNOWN";
+        const char *service = "IPC_OFFLINE";
 
-        // 1. Read systemd service state
-        read_unit_state(
-            units[i],
-            service,
-            sizeof(service));
-
-        // 2. Request device health via IPC
-        if (strcmp(service, "active") == 0)
+        // Request device health through IPC
+        if (i == 0)
         {
-            if (i == 0)
-            {
-                relay_sonar_command(
-                    '?', raw, sizeof(raw));
-            }
-            else if (i == 1)
-            {
-                relay_dvl_command(
-                    "?", raw, sizeof(raw));
-            }
-            else
-            {
-                relay_servo_command(
-                    '?', raw, sizeof(raw));
-            }
-
-            // Validate the expected health response
-            if (strncmp(
-                    raw,
-                    prefixes[i],
-                    strlen(prefixes[i])) == 0 &&
-                sscanf(
-                    raw + strlen(prefixes[i]),
-                    "%31s",
-                    state) == 1)
-            {
-                snprintf(
-                    health,
-                    sizeof(health),
-                    "%s",
-                    raw);
-            }
-            else
-            {
-                strcpy(state, "UNKNOWN");
-
-                snprintf(
-                    health,
-                    sizeof(health),
-                    "%s STATE: UNKNOWN\n"
-                    "ERROR: IPC_UNAVAILABLE\n"
-                    "DETAIL: %.250s\n",
-                    names[i],
-                    raw);
-            }
+            relay_sonar_command('?', raw, sizeof(raw));
         }
-        else if (strcmp(service, "inactive") == 0)
+        else if (i == 1)
         {
-            strcpy(state, "STOPPED");
-
-            snprintf(
-                health,
-                sizeof(health),
-                "%s STATE: STOPPED\n"
-                "ERROR: NONE\n",
-                names[i]);
-        }
-        else if (strcmp(service, "failed") == 0)
-        {
-            strcpy(state, "ERROR");
-
-            snprintf(
-                health,
-                sizeof(health),
-                "%s STATE: ERROR\n"
-                "ERROR: SERVICE_FAILED\n",
-                names[i]);
-        }
-        else if (strcmp(service, "activating") == 0)
-        {
-            strcpy(state, "STARTING");
-
-            snprintf(
-                health,
-                sizeof(health),
-                "%s STATE: STARTING\n"
-                "ERROR: NONE\n",
-                names[i]);
+            relay_dvl_command("?", raw, sizeof(raw));
         }
         else
         {
-            snprintf(
-                health,
-                sizeof(health),
-                "%s STATE: UNKNOWN\n"
-                "ERROR: SERVICE_STATUS_UNKNOWN\n",
-                names[i]);
+            relay_servo_command('?', raw, sizeof(raw));
         }
 
-        // 3. Aggregate system state
+        // Check the health response
+        if (strncmp(raw, prefixes[i],
+                    strlen(prefixes[i])) == 0 &&
+            sscanf(raw + strlen(prefixes[i]),
+                   "%31s", state) == 1)
+        {
+            service = "IPC_ONLINE";
+
+            snprintf(health, sizeof(health),
+                     "%s", raw);
+        }
+        else
+        {
+            struct stat st;
+
+            // No socket: device is not available
+            if (stat(paths[i], &st) != 0 &&
+                errno == ENOENT)
+            {
+                strcpy(state, "STOPPED");
+
+                snprintf(health, sizeof(health),
+                         "%s STATE: STOPPED\n"
+                         "ERROR: IPC_OFFLINE\n",
+                         names[i]);
+            }
+            else
+            {
+                // Socket exists but did not respond correctly
+                strcpy(state, "UNKNOWN");
+                service = "IPC_ERROR";
+
+                snprintf(health, sizeof(health),
+                         "%s STATE: UNKNOWN\n"
+                         "ERROR: IPC_UNAVAILABLE\n"
+                         "DETAIL: %.250s\n",
+                         names[i], raw);
+            }
+        }
+
+        // Aggregate system state
         if (strcmp(state, "STOPPED") == 0)
         {
             ++stopped;
@@ -563,7 +392,7 @@ static void report_service_states(char *response, size_t cap)
             ++pending;
         }
 
-        // 4. Append device report
+        // Keep existing TUI response format
         int written = snprintf(
             response + used,
             cap - used,
@@ -584,16 +413,10 @@ static void report_service_states(char *response, size_t cap)
                                : stopped || pending ? "PARTIAL"
                                                     : "OPERATIONAL";
 
-    (void)failed;
-    (void)stopped;
-    (void)pending;
-
-    (void)snprintf(
-        response + used,
-        cap - used,
-        "SYSTEM STATE: %s\n",
-        summary);
+    snprintf(response + used, cap - used,
+             "SYSTEM STATE: %s\n", summary);
 }
+
 static const char *dispatch(const char *command)
 {
     static char response[2048];
@@ -611,15 +434,14 @@ static const char *dispatch(const char *command)
                "AVAILABLE: status, q\n";
     if (strcmp(command, "status") == 0)
     {
-        report_service_states(
+        report_ipc_states(
             response,
             sizeof(response));
-
         return response;
     }
     if (strcmp(command, "q") == 0)
     {
-        stop_all_units(response, sizeof(response));
+        stop_all_devices(response, sizeof(response));
         return response;
     }
     if (strncmp(command, "h -", 3) == 0)
@@ -833,7 +655,7 @@ int main(int argc, char **argv)
 
             /*
              * Restore normal child-process waiting.
-             * Required by stop_one_unit(), which uses waitpid().
+             * Required by stop_all_devices(), which uses waitpid().
              */
             signal(SIGCHLD, SIG_DFL);
 

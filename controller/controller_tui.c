@@ -237,7 +237,7 @@ int main(void)
                  "SERVO: status monitor unavailable");
     }
 
-    // Stage 5-B: collect actual service stdout/stderr.
+    // Stage 5-B: collect device output from log files.
     static ControllerJournalMonitor journal_monitor;
 
     int journal_running =
@@ -267,7 +267,7 @@ int main(void)
             display_changed = 1;
         }
 
-        // Stage 5-D: Journal update and scroll tracking
+        // Stage 5-D: File log update and scroll tracking
         int log_rows = getmaxy(stdscr) - 13;
 
         if (log_rows < 1)

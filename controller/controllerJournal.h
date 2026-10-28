@@ -59,11 +59,13 @@ typedef struct
 typedef struct
 {
     ControllerJournalStream *stream;
-    const char *unit;
+    const char *filename;
 } ControllerJournalWorkerArg;
 
-static const char *const controller_journal_units[CONTROLLER_JOURNAL_DEVICES] = {
-    "sonar.service", "dvl.service", "servo.service"};
+static const char *const controller_journal_filenames[CONTROLLER_JOURNAL_DEVICES] = {
+    "sonar.log",
+    "dvl.log",
+    "servo.log"};
 
 static void controller_journal_set_diagnostic(
     ControllerJournalStream *stream, const char *text, int online)
@@ -201,23 +203,62 @@ static void controller_journal_reap(pid_t child, int stopping)
 
 static void *controller_journal_worker(void *arg)
 {
+
     ControllerJournalWorkerArg *worker = (ControllerJournalWorkerArg *)arg;
     ControllerJournalStream *stream = worker->stream;
-    const char *unit = worker->unit;
+    const char *filename = worker->filename;
     free(worker);
+
+    // Resolve the correct log file path
+    char log_path[1024];
+    int written = -1;
+
+    // All device logs are stored under the same user directory
+    const char *state_home = getenv("XDG_STATE_HOME");
+
+    if (state_home && state_home[0])
+    {
+        written = snprintf(
+            log_path, sizeof(log_path),
+            "%s/marine-sensors/logs/%s",
+            state_home, filename);
+    }
+    else
+    {
+        const char *home = getenv("HOME");
+
+        if (!home || !home[0])
+        {
+            controller_journal_set_diagnostic(
+                stream, "HOME is not set", 0);
+            return NULL;
+        }
+
+        written = snprintf(
+            log_path, sizeof(log_path),
+            "%s/.local/state/marine-sensors/logs/%s",
+            home, filename);
+    }
+
+    if (written < 0 || (size_t)written >= sizeof(log_path))
+    {
+        controller_journal_set_diagnostic(
+            stream, "Log file path is too long", 0);
+        return NULL;
+    }
 
     int output[2];
     int errors[2];
     if (pipe(output) != 0)
     {
-        controller_journal_set_diagnostic(stream, "Cannot create journal stdout pipe", 0);
+        controller_journal_set_diagnostic(stream, "Cannot create log stdout pipe", 0);
         return NULL;
     }
     if (pipe(errors) != 0)
     {
         close(output[0]);
         close(output[1]);
-        controller_journal_set_diagnostic(stream, "Cannot create journal stderr pipe", 0);
+        controller_journal_set_diagnostic(stream, "Cannot create log stderr pipe", 0);
         return NULL;
     }
 
@@ -228,7 +269,7 @@ static void *controller_journal_worker(void *arg)
         close(output[1]);
         close(errors[0]);
         close(errors[1]);
-        controller_journal_set_diagnostic(stream, "Cannot fork journalctl", 0);
+        controller_journal_set_diagnostic(stream, "Cannot fork log reader", 0);
         return NULL;
     }
     if (child == 0)
@@ -241,17 +282,18 @@ static void *controller_journal_worker(void *arg)
         close(output[1]);
         close(errors[1]);
         char *const argv[] = {
-            "journalctl", "--no-pager", "--boot", "--follow",
-            "--lines=20", "--output=cat", "--unit", (char *)unit, NULL};
-        execvp("journalctl", argv);
-        static const char fail[] = "Could not execute journalctl\n";
+            "tail", "-n", "20", "-F", "--", log_path, NULL};
+
+        execvp("tail", argv);
+
+        static const char fail[] = "Could not execute tail\n";
         (void)write(STDERR_FILENO, fail, sizeof(fail) - 1);
         _exit(127);
     }
 
     close(output[1]);
     close(errors[1]);
-    controller_journal_set_diagnostic(stream, "Following systemd journal", 1);
+    controller_journal_set_diagnostic(stream, "Following file logs", 1);
 
     ControllerJournalLine line = {{0}, 0, 0};
     char err_line[CONTROLLER_JOURNAL_DIAGNOSTIC_LENGTH] = {0};
@@ -282,7 +324,7 @@ static void *controller_journal_worker(void *arg)
         {
             if (errno == EINTR)
                 continue;
-            controller_journal_set_diagnostic(stream, "journalctl pipe poll failed", 0);
+            controller_journal_set_diagnostic(stream, "Log reader pipe poll failed", 0);
             break;
         }
         if (result == 0)
@@ -334,9 +376,9 @@ static void *controller_journal_worker(void *arg)
     {
         pthread_mutex_lock(&stream->mutex);
         stream->online = 0;
-        if (strcmp(stream->diagnostic, "Following systemd journal") == 0)
+        if (strcmp(stream->diagnostic, "Following file logs") == 0)
             snprintf(stream->diagnostic, sizeof(stream->diagnostic),
-                     "journalctl exited (inspect journal permissions and unit)");
+                     "Log reader exited (inspect file permissions)");
         ++stream->version;
         pthread_mutex_unlock(&stream->mutex);
     }
@@ -355,7 +397,7 @@ static inline int controller_journal_start(ControllerJournalMonitor *monitor)
             goto failure;
         ++initialized;
         atomic_init(&s->stop, 0);
-        snprintf(s->diagnostic, sizeof(s->diagnostic), "Starting journal reader");
+        snprintf(s->diagnostic, sizeof(s->diagnostic), "Starting file reader");
     }
     for (int i = 0; i < CONTROLLER_JOURNAL_DEVICES; ++i)
     {
@@ -363,7 +405,7 @@ static inline int controller_journal_start(ControllerJournalMonitor *monitor)
         if (!arg)
             goto failure;
         arg->stream = &monitor->stream[i];
-        arg->unit = controller_journal_units[i];
+        arg->filename = controller_journal_filenames[i];
         if (pthread_create(&monitor->stream[i].thread, NULL,
                            controller_journal_worker, arg) != 0)
         {

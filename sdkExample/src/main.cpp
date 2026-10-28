@@ -19,6 +19,7 @@
 #include <string>
 #include <chrono>
 #include <cstdlib>
+#include <cstdio>
 
 using namespace IslSdk;
 
@@ -64,6 +65,12 @@ Slot<SysPort &> slotPortDeleted(&portDeleted);
 int main(int argc, char **argv)
 {
     g_serviceMode = (argc > 1 && std::string(argv[1]) == "--service");
+
+    // Flush complete log lines when running without a terminal
+    if (g_serviceMode)
+    {
+        std::setvbuf(stdout, nullptr, _IOLBF, 0);
+    }
 
     std::signal(SIGTERM, handleStopSignal);
     std::signal(SIGINT, handleStopSignal);

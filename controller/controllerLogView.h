@@ -210,7 +210,7 @@ static inline void controller_log_view_draw(
     if (!monitor)
     {
         attron(A_DIM);
-        mvaddnstr(first_row, x, "[journal reader unavailable]", width);
+        mvaddnstr(first_row, x, "[log reader unavailable]", width);
         attroff(A_DIM);
         return;
     }
@@ -222,10 +222,12 @@ static inline void controller_log_view_draw(
         NULL, &online, diagnostic, sizeof(diagnostic));
 
     int content_top = first_row;
-    if (!online)
+    if (!online ||
+        (diagnostic[0] &&
+         strcmp(diagnostic, "Following file logs") != 0))
     {
         char notice[CONTROLLER_JOURNAL_DIAGNOSTIC_LENGTH + 12];
-        snprintf(notice, sizeof(notice), "[journal: %s]", diagnostic);
+        snprintf(notice, sizeof(notice), "[file: %s]", diagnostic);
         attron(A_DIM);
         mvaddnstr(content_top, x, notice, width);
         attroff(A_DIM);
@@ -251,7 +253,7 @@ static inline void controller_log_view_draw(
     {
         attron(A_DIM);
         mvaddnstr(content_top, x,
-                  "[waiting for service logs]", width);
+                  "[waiting for file logs]", width);
         attroff(A_DIM);
     }
 
