@@ -36,7 +36,13 @@ set +a
 echo "[INFO] Checking marine sensor programs..."
 
 if ! "$START_SCRIPT"; then
-    show_error "One or more programs failed to start"
+    echo "[WARN] One or more programs failed to start." >&2
+    echo "[INFO] Opening TUI for status and log inspection."
+fi
+
+# Controller daemon must be available for IPC commands
+if [[ ! -S "$MARINE_CONTROLLER_SOCKET" ]]; then
+    show_error "Controller IPC socket is not ready"
 fi
 
 # 5. Prevent duplicate TUI windows

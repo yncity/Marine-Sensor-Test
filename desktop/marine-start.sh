@@ -48,6 +48,7 @@ start_one() {
     local pidfile="$RUN_DIR/$name.pid"
     local logfile="$LOG_DIR/$name.log"
     local old_pid="" actual="" expected=""
+    local i
     shift 4
 
     if [[ ! -x "$binary" ]]; then
@@ -67,8 +68,13 @@ start_one() {
             actual="$(readlink -f -- "/proc/$old_pid/exe" 2>/dev/null || true)"
 
             if [[ "$actual" == "$expected" ]]; then
-                echo "[OK] $name already running (PID $old_pid)"
-                return 0
+                if [[ -S "$sock" ]]; then
+                    echo "[OK] $name already running (PID $old_pid), IPC ready"
+                    return 0
+                fi
+
+                echo "[WARN] $name is running but IPC is not ready: $sock" >&2
+                return 1
             fi
         fi
 
@@ -91,16 +97,29 @@ start_one() {
     local pid=$!
     printf '%s\n' "$pid" > "$pidfile"
 
-    sleep 1
+    # Wait up to 10 seconds for the IPC socket
+    for ((i=0; i<100; i++)); do
 
-    if ! kill -0 "$pid" 2>/dev/null; then
-        echo "[ERROR] $name exited during startup." >&2
-        echo "Check log: $logfile" >&2
-        rm -f -- "$pidfile"
-        return 1
-    fi
+        # Process exited before IPC initialization
+        if ! kill -0 "$pid" 2>/dev/null; then
+            echo "[ERROR] $name exited during startup." >&2
+            echo "Check log: $logfile" >&2
+            rm -f -- "$pidfile"
+            return 1
+        fi
 
-    echo "[OK] $name started (PID $pid)"
+        # IPC socket created successfully
+        if [[ -S "$sock" ]]; then
+            echo "[OK] $name started (PID $pid), IPC ready"
+            return 0
+        fi
+
+        sleep 0.1
+    done
+
+    echo "[ERROR] $name IPC socket was not ready within 10 seconds." >&2
+    echo "Check log: $logfile" >&2
+    return 1
 }
 
 # 4. Launch programs
