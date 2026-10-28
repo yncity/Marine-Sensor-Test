@@ -31,7 +31,7 @@ namespace IslSdk
         void doTask(int_t key, const std::string &path) override;
         // GUI 화면 갱신 및 ESC 입력 처리
         // ESC를 누르면 true 반환
-        bool updateViewer(const std::string &path);
+        bool updateViewer(const std::string &path, bool serviceMode);
 
         // 프로그램 종료 시 자원 정리
         void shutdown();

@@ -214,21 +214,18 @@ int main(int argc, char **argv)
             SonarApp *sonarApp =
                 dynamic_cast<SonarApp *>(app);
 
-            if (sonarApp != nullptr)
+            if (sonarApp->updateViewer(appPath, g_serviceMode))
             {
-                if (sonarApp->updateViewer(appPath))
+                if (g_serviceMode)
                 {
-                    if (g_serviceMode)
-                    {
-                        // 서비스 모드에서는 GUI만 종료
-                        sonarApp->doTask('a', appPath);
-                    }
-                    else
-                    {
-                        // 일반 실행에서는 기존처럼 프로그램 종료
-                        exitRequested = true;
-                        break;
-                    }
+                    // 서비스 모드에서는 GUI만 종료
+                    sonarApp->doTask('a', appPath);
+                }
+                else
+                {
+                    // 일반 실행에서는 기존처럼 프로그램 종료
+                    exitRequested = true;
+                    break;
                 }
             }
         }

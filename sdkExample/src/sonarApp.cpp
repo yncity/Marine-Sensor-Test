@@ -789,7 +789,7 @@ void SonarApp::callbackPingData(Sonar &sonar, const Sonar::Ping &ping)
     }
 }
 
-bool SonarApp::updateViewer(const std::string &path)
+bool SonarApp::updateViewer(const std::string &path, bool serviceMode)
 {
     using Clock = std::chrono::steady_clock;
 
@@ -912,12 +912,23 @@ bool SonarApp::updateViewer(const std::string &path)
             return true;
         }
 
-        // 모든 일반 문자 키를 doTask()로 전달
+        // OpenCV GUI 키보드 명령 처리
         if (key >= 0 && key <= 255)
         {
-            doTask(key, path);
+            // 서비스 모드에서는 IP 변경 및 초기화 명령 차단
+            if (serviceMode && (key == 'n' || key == 'd'))
+            {
+                std::cout
+                    << "[DENIED] Command '" << static_cast<char>(key)
+                    << "' is not allowed in service mode."
+                    << std::endl;
+            }
+            else
+            {
+                // 일반 명령은 기존 doTask()로 전달
+                doTask(key, path);
+            }
         }
-
         // GUI가 여전히 열려 있는 경우 창 상태 확인
         if (m_viewerOpen)
         {
