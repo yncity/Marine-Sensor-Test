@@ -18,6 +18,7 @@
 #include <csignal>
 #include <string>
 #include <chrono>
+#include <cstdlib>
 
 using namespace IslSdk;
 
@@ -136,9 +137,22 @@ int main(int argc, char **argv)
                 "ERROR: NONE\n";
         }
         // 서비스 모드에서 허용된 명령만 처리
-        if (std::strchr("relv12345678ptc", key) == nullptr)
+        if (std::strchr("relv12345678ptcza", key) == nullptr)
         {
             return "DENIED: key not permitted in Sonar service mode\n";
+        }
+
+        // GUI 실행 환경 확인
+        if (key == 'z')
+        {
+            const char *display = std::getenv("DISPLAY");
+            const char *wayland = std::getenv("WAYLAND_DISPLAY");
+
+            if ((!display || !*display) &&
+                (!wayland || !*wayland))
+            {
+                return "GUI_UNAVAILABLE: no display environment\n";
+            }
         }
 
         bool sonarFound = false;
@@ -204,8 +218,17 @@ int main(int argc, char **argv)
             {
                 if (sonarApp->updateViewer(appPath))
                 {
-                    exitRequested = true;
-                    break;
+                    if (g_serviceMode)
+                    {
+                        // 서비스 모드에서는 GUI만 종료
+                        sonarApp->doTask('a', appPath);
+                    }
+                    else
+                    {
+                        // 일반 실행에서는 기존처럼 프로그램 종료
+                        exitRequested = true;
+                        break;
+                    }
                 }
             }
         }

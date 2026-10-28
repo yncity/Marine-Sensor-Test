@@ -35,9 +35,9 @@ static const char *sonar_socket_path(void)
 
 static int is_allowed_sonar_key(char key)
 {
-    // Only non-interactive Sonar commands. Exclude x (3-C shutdown), z (GUI),
-    // n (persistent network IP), d (persistent factory defaults).
-    return strchr("relv12345678ptc", key) != NULL;
+    // Allow Sonar commands including GUI z/a.
+    // Exclude x (shutdown), n (IP), d (factory defaults).
+    return strchr("relv12345678ptcza", key) != NULL;
 }
 
 static void relay_sonar_command(char key, char *reply, size_t cap)
@@ -601,7 +601,7 @@ static const char *dispatch(const char *command)
         return "PONG: controllerd is responding\n";
     if (strcmp(command, "help") == 0)
         return "AVAILABLE: ping, help\n"
-               "AVAILABLE: Sonar r/e/l/v/1-8/p/t/c\n"
+               "AVAILABLE: Sonar r/e/l/v/1-8/p/t/c/z/a\n"
                "AVAILABLE: DVL h -x (0.1..100 Hz)\n"
                "AVAILABLE: Servo u/i/o\n"
                "AVAILABLE: q (stop all devices)\n"
@@ -669,8 +669,7 @@ static const char *dispatch(const char *command)
         relay_sonar_command(command[0], response, sizeof(response));
         return response;
     }
-    if (strcmp(command, "z") == 0)
-        return "DEFERRED: remote Sonar GUI is a later development stage\n";
+
     if (strcmp(command, "n") == 0 || strcmp(command, "d") == 0)
         return "DENIED: persistent device configuration is not a general command\n";
     return "UNKNOWN_COMMAND: not connected to a device yet\n";
