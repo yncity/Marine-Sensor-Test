@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Marine Sensor Controller
+Comment=Launch marine sensor controller
+Exec=@REPO_DIR@/desktop/marine-launch.sh
+Terminal=true
+Categories=Utility;
