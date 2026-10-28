@@ -21,6 +21,7 @@
 #include <memory>
 #include <string>
 #include <cstdlib>
+#include <cstdio>
 
 using namespace IslSdk;
 
@@ -306,6 +307,9 @@ void SonarApp::doTask(int_t key, const std::string &path)
                     name.c_str(),
                     "Range change request rejected");
             }
+
+            // 명령 처리 결과를 즉시 stdout으로 전달
+            std::fflush(stdout);
 
             break;
         }
@@ -750,8 +754,15 @@ void SonarApp::callbackSettingsUpdated(Sonar &sonar, bool_t ok, Sonar::Settings:
     }
     else
     {
-        Debug::log(Debug::Severity::Warning, name.c_str(), "%s settings failed to update", settingsTypeStr[static_cast<uint_t>(settingsType)]);
+        Debug::log(
+            Debug::Severity::Warning,
+            name.c_str(),
+            "%s settings failed to update",
+            settingsTypeStr[static_cast<uint_t>(settingsType)]);
     }
+
+    // 실제 설정 갱신 결과를 즉시 출력
+    std::fflush(stdout);
 }
 //--------------------------------------------------------------------------------------------------
 void SonarApp::callbackHeadIndexesAcquired(Sonar &sonar, const Sonar::HeadIndexes &data)
