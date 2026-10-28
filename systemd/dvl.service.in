@@ -1,14 +1,17 @@
 [Unit]
 Description=Marine DVL Service
 Wants=network-online.target
-After=network-online.target
+After=network-online.target systemd-tmpfiles-setup.service
 
 [Service]
 Type=simple
-User=kiost
+User=@INSTALL_USER@
+Group=marine-ipc
 
-WorkingDirectory=/home/kiost/Marine-Sensor-Test
-ExecStart=/home/kiost/Marine-Sensor-Test/dvl_test --service
+WorkingDirectory=@REPO_DIR@
+ExecStart=@REPO_DIR@/dvl_test --service
+
+EnvironmentFile=/etc/marine-sensors/ipc.env
 
 Restart=on-failure
 RestartSec=10

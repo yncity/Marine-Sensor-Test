@@ -58,6 +58,23 @@ static int servo_command_start(ServoCommandSocket *cmd)
         return -1;
     }
     umask(original_mask);
+
+    // Custom IPC socket: allow owner and group access
+    if (custom && custom[0])
+    {
+        if (chmod(cmd->path, 0660) != 0)
+        {
+            int saved = errno;
+
+            perror("Servo IPC chmod");
+            close(fd);
+            unlink(cmd->path);
+
+            errno = saved;
+            return -1;
+        }
+    }
+
     if (listen(fd, 4) != 0)
     {
         int saved = errno;

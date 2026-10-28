@@ -18,9 +18,19 @@ int main(int argc, char **argv)
     }
     struct sockaddr_un address = {0};
     address.sun_family = AF_UNIX;
-    if (strlen(DEFAULT_SOCKET) >= sizeof(address.sun_path))
+
+    // Resolve controller socket path
+    const char *socket_path = getenv("MARINE_CONTROLLER_SOCKET");
+
+    if (socket_path == NULL || socket_path[0] == '\0')
+    {
+        socket_path = DEFAULT_SOCKET;
+    }
+
+    if (strlen(socket_path) >= sizeof(address.sun_path))
         return EXIT_FAILURE;
-    strcpy(address.sun_path, DEFAULT_SOCKET);
+
+    strcpy(address.sun_path, socket_path);
 
     char command[256] = {0};
     size_t length = 0;

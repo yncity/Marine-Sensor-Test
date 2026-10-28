@@ -711,7 +711,15 @@ static void handle_client(int client)
 
 int main(int argc, char **argv)
 {
-    const char *path = argc == 2 ? argv[1] : DEFAULT_SOCKET;
+    // Priority: command-line argument > environment > default
+    const char *custom = getenv("MARINE_CONTROLLER_SOCKET");
+
+    const char *path = argc == 2
+                           ? argv[1]
+                           : (custom && custom[0]
+                                  ? custom
+                                  : DEFAULT_SOCKET);
+
     if (argc > 2)
     {
         fprintf(stderr, "Usage: %s [unix-socket-path]\n", argv[0]);
@@ -770,6 +778,23 @@ int main(int argc, char **argv)
         return EXIT_FAILURE;
     }
     umask(old_mask);
+
+    // Custom IPC socket: allow owner and group access
+    if (custom && custom[0] && strcmp(path, custom) == 0)
+    {
+        if (chmod(path, 0660) != 0)
+        {
+            int saved = errno;
+
+            perror("Controller IPC chmod");
+            close(server);
+            unlink(path);
+
+            errno = saved;
+            return EXIT_FAILURE;
+        }
+    }
+
     if (listen(server, 8) < 0)
     {
         perror("listen");

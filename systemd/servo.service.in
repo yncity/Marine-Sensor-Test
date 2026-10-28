@@ -1,12 +1,15 @@
 [Unit]
 Description=Marine Servo Service
-After=systemd-udev-settle.service
+After=systemd-tmpfiles-setup.service
 
 [Service]
 Type=simple
 User=root
+Group=marine-ipc
 
 ExecStart=/usr/local/bin/marine-servo --service
+
+EnvironmentFile=/etc/marine-sensors/ipc.env
 
 Restart=no
 

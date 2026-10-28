@@ -14,6 +14,7 @@
 #include <sys/time.h>
 #include <sys/un.h>
 #include <unistd.h>
+#include <stdlib.h>
 
 #define MARINE_CONTROLLER_SOCKET "./controller.sock"
 
@@ -35,12 +36,22 @@ static int controller_ipc_request(const char *command,
 
     struct sockaddr_un address = {0};
     address.sun_family = AF_UNIX;
-    if (strlen(MARINE_CONTROLLER_SOCKET) >= sizeof(address.sun_path))
+
+    // Resolve controller socket path
+    const char *socket_path = getenv("MARINE_CONTROLLER_SOCKET");
+
+    if (socket_path == NULL || socket_path[0] == '\0')
+    {
+        socket_path = MARINE_CONTROLLER_SOCKET;
+    }
+
+    if (strlen(socket_path) >= sizeof(address.sun_path))
     {
         snprintf(response, capacity, "IPC ERROR: controller socket path too long");
         return -1;
     }
-    strcpy(address.sun_path, MARINE_CONTROLLER_SOCKET);
+
+    strcpy(address.sun_path, socket_path);
 
     int fd = socket(AF_UNIX, SOCK_STREAM, 0);
     if (fd < 0)

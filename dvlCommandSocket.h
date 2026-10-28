@@ -59,7 +59,25 @@ static int dvl_command_start(DvlCommandSocket *cmd)
         return -1;
     }
     umask(old_mask);
-    if (listen(fd, 4) != 0 || fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, 0) | O_NONBLOCK) != 0)
+
+    // Custom IPC socket: allow owner and group access
+    if (custom && custom[0])
+    {
+        if (chmod(cmd->path, 0660) != 0)
+        {
+            int saved = errno;
+
+            perror("DVL IPC chmod");
+            close(fd);
+            unlink(cmd->path);
+
+            errno = saved;
+            return -1;
+        }
+    }
+
+    if (listen(fd, 4) != 0 ||
+        fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, 0) | O_NONBLOCK) != 0)
     {
         int saved = errno;
         close(fd);

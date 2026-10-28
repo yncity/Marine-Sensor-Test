@@ -1,0 +1,26 @@
+[Unit]
+Description=Marine Sonar Service
+Wants=network-online.target
+After=network-online.target systemd-tmpfiles-setup.service
+
+[Service]
+Type=simple
+User=@INSTALL_USER@
+Group=marine-ipc
+
+WorkingDirectory=@REPO_DIR@/sdkExample/build/bin
+ExecStart=@REPO_DIR@/sdkExample/build/bin/sdkExample --service
+
+EnvironmentFile=/etc/marine-sensors/ipc.env
+
+Restart=on-failure
+RestartSec=10
+
+StandardInput=null
+StandardOutput=journal
+StandardError=journal
+
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target
