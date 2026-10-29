@@ -977,6 +977,194 @@ step_5() {
     echo "[OK] STEP 5 completed successfully."
 }
 
+
+# ------------------------------------------------------------
+# 7. STEP 6 - Install desktop autostart
+# ------------------------------------------------------------
+
+step_6() {
+
+    echo
+    echo "[6-1] Checking autostart requirements..."
+
+    local template="$REPO_DIR/desktop/marine-autostart.desktop.in"
+    local start_script="$REPO_DIR/desktop/marine-start.sh"
+    local config_base="${XDG_CONFIG_HOME:-$HOME/.config}"
+    local autostart_dir="$config_base/autostart"
+    local destination="$autostart_dir/marine-autostart.desktop"
+    local staged=""
+    local escaped_repo=""
+    local backup_file=""
+
+    [[ "$config_base" == /* ]] ||
+        error_exit "XDG_CONFIG_HOME must be an absolute path."
+
+    [[ -r "$template" ]] ||
+        error_exit "Autostart template is missing."
+
+    [[ -f "$start_script" ]] ||
+        error_exit "marine-start.sh is missing."
+
+    # Desktop Exec uses % for field codes.
+    # Reject unsupported repository paths.
+    if [[ "$REPO_DIR" == *%* ]]; then
+        error_exit "Repository path must not contain '%'."
+    fi
+
+    chmod u+x -- "$start_script"
+
+    [[ -x "$start_script" ]] ||
+        error_exit "marine-start.sh is not executable."
+
+    bash -n "$start_script" ||
+        error_exit "marine-start.sh syntax check failed."
+
+    command -v desktop-file-validate >/dev/null 2>&1 ||
+        error_exit "desktop-file-validate is not installed."
+
+    echo "[OK] Autostart requirements verified."
+
+
+    # --------------------------------------------------------
+    # 6-2. Prepare user autostart directory
+    # --------------------------------------------------------
+
+    echo
+    echo "[6-2] Preparing desktop autostart directory..."
+
+    mkdir -p -- "$autostart_dir"
+
+    [[ -d "$autostart_dir" &&
+       -O "$autostart_dir" &&
+       -w "$autostart_dir" ]] ||
+        error_exit "Autostart directory is not owned/writable."
+
+    echo "[OK] Directory: $autostart_dir"
+
+
+    # --------------------------------------------------------
+    # 6-3. Generate desktop entry
+    # --------------------------------------------------------
+
+    echo
+    echo "[6-3] Generating autostart desktop entry..."
+
+    grep -Fq '@REPO_DIR@' "$template" ||
+        error_exit "Repository placeholder not found in template."
+
+    # Escape replacement characters for sed.
+    escaped_repo="$(
+        printf '%s' "$REPO_DIR" |
+            sed 's/[\\&|]/\\&/g'
+    )"
+
+    staged="$(mktemp "$autostart_dir/.marine-autostart.XXXXXXXX.desktop")"
+
+    sed "s|@REPO_DIR@|$escaped_repo|g" \
+        "$template" > "$staged"
+
+    if grep -Fq '@REPO_DIR@' "$staged"; then
+        rm -f -- "$staged"
+        error_exit "Unresolved repository placeholder."
+    fi
+
+    echo "[OK] Desktop entry generated."
+
+
+    # --------------------------------------------------------
+    # 6-4. Validate desktop entry
+    # --------------------------------------------------------
+
+    echo
+    echo "[6-4] Validating desktop entry..."
+
+    if ! desktop-file-validate "$staged"; then
+        rm -f -- "$staged"
+        error_exit "Invalid autostart desktop entry."
+    fi
+
+    if ! grep -Fxq \
+        "Exec=$REPO_DIR/desktop/marine-start.sh" "$staged"; then
+
+        rm -f -- "$staged"
+        error_exit "Autostart Exec path mismatch."
+    fi
+
+    if ! grep -Fxq 'Terminal=false' "$staged"; then
+        rm -f -- "$staged"
+        error_exit "Autostart must run without a terminal."
+    fi
+
+    echo "[OK] Desktop entry syntax and execution path verified."
+
+
+    # --------------------------------------------------------
+    # 6-5. Install desktop entry
+    # --------------------------------------------------------
+
+    echo
+    echo "[6-5] Installing desktop autostart..."
+
+    [[ ! -L "$destination" ]] ||
+        error_exit "Autostart destination must not be a symbolic link."
+
+    if [[ -f "$destination" ]]; then
+
+        if cmp -s -- "$staged" "$destination"; then
+
+            echo "[OK] Autostart is already configured."
+
+        else
+
+            # Preserve existing configuration before replacing it.
+            backup_file="${destination}.backup-$(date +%Y%m%d-%H%M%S)"
+
+            cp -p -- "$destination" "$backup_file"
+
+            install -m 0644 -- "$staged" "$destination"
+
+            echo "[OK] Autostart configuration updated."
+            echo "[INFO] Backup: $backup_file"
+        fi
+
+    else
+
+        install -m 0644 -- "$staged" "$destination"
+        echo "[OK] Autostart configuration installed."
+    fi
+
+    rm -f -- "$staged"
+
+
+    # --------------------------------------------------------
+    # 6-6. Final verification
+    # --------------------------------------------------------
+
+    echo
+    echo "[6-6] Verifying installed configuration..."
+
+    [[ -f "$destination" && -r "$destination" ]] ||
+        error_exit "Installed autostart entry is missing."
+
+    desktop-file-validate "$destination" ||
+        error_exit "Installed autostart entry validation failed."
+
+    grep -Fxq \
+        "Exec=$REPO_DIR/desktop/marine-start.sh" "$destination" ||
+        error_exit "Installed Exec path is incorrect."
+
+    echo "[OK] Installed file: $destination"
+    echo "[OK] Executable: $start_script"
+
+    echo
+    echo "[INFO] Autostart will run at the next graphical login."
+    echo "[INFO] No sensor programs were started by this step."
+    echo "[INFO] No systemd sensor services were created."
+
+    echo
+    echo "[OK] STEP 6 completed successfully."
+}
+
 # ------------------------------------------------------------
 # Main
 # ------------------------------------------------------------
@@ -1014,13 +1202,16 @@ main() {
     confirm_step 5 "Configure Servo PWM and GPIO"
     step_5
 
-    echo
+    # STEP 6 - Desktop autostart
+    confirm_step 6 "Install Desktop Autostart"
+    step_6
+
+    echo " STEP 1-6 COMPLETED"
     echo "========================================"
-    echo " STEP 1-5 COMPLETED"
-    echo "========================================"
-    echo "[INFO] STEP 6-7 are not implemented yet."
+    echo "[INFO] STEP 7 is not implemented yet."
     echo "[INFO] Installation is NOT complete."
     echo "[INFO] Reboot is required before Servo operation."
+    echo "[INFO] Desktop autostart will apply after graphical login."
 }
 
 main "$@"
