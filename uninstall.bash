@@ -37,7 +37,7 @@ if [[ -f "$AUTOSTART" ]]; then
         fail "Autostart belongs to another repository. Refusing to delete."
 fi
 if [[ -f "$LAUNCHER" ]]; then
-    grep -Fxq "Exec=/usr/bin/bash $REPO_DIR/desktop/marine-start.sh" "$AUTOSTART" ||
+    grep -Fxq "Exec=$REPO_DIR/desktop/marine-launch.sh" "$LAUNCHER" ||
         fail "Desktop launcher belongs to another repository. Refusing to delete."
 fi
 
