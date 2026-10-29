@@ -368,8 +368,229 @@ step_2() {
 
 
 # ------------------------------------------------------------
-# Main
+# 4. STEP 3 - Build all programs
 # ------------------------------------------------------------
+
+# Execute a build command and save its output.
+# Any failure stops the installation immediately.
+run_build() {
+    local name="$1"
+    shift
+
+    local logfile="$BUILD_LOG_DIR/${name}.log"
+    local result=0
+
+    echo
+    echo "----------------------------------------"
+    echo "[BUILD] $name"
+    echo "[LOG]   $logfile"
+    echo "----------------------------------------"
+
+    "$@" 2>&1 | tee "$logfile" || result=$?
+
+    if ((result != 0)); then
+        echo "[ERROR] Build failed: $name" >&2
+        echo "[ERROR] Exit code: $result" >&2
+        echo "[ERROR] See log: $logfile" >&2
+        error_exit "STEP 3 failed while building $name."
+    fi
+
+    echo "[OK] $name completed."
+}
+
+
+# Verify a generated executable.
+check_binary() {
+    local binary="$1"
+
+    if [[ ! -f "$binary" || ! -x "$binary" ]]; then
+        error_exit "Build output missing or not executable: $binary"
+    fi
+
+    echo "[OK] $(realpath --relative-to="$REPO_DIR" "$binary")"
+}
+
+
+step_3() {
+
+    echo
+    echo "[3-1] Preparing build configuration..."
+
+    local build_dir="$REPO_DIR/sdkExample/build"
+    local bits
+    local x32_bit="OFF"
+    local build_jobs="${MARINE_BUILD_JOBS:-1}"
+
+    BUILD_LOG_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/marine-sensors/install-logs"
+
+    mkdir -p -- "$BUILD_LOG_DIR"
+
+    # Match CMake SDK configuration to the OS bitness.
+    bits="$(getconf LONG_BIT)"
+
+    case "$bits" in
+        32)
+            x32_bit="ON"
+            ;;
+        64)
+            x32_bit="OFF"
+            ;;
+        *)
+            error_exit "Unsupported OS bitness: $bits"
+            ;;
+    esac
+
+    if [[ ! "$build_jobs" =~ ^[1-9][0-9]*$ ]]; then
+        error_exit "MARINE_BUILD_JOBS must be a positive integer."
+    fi
+
+    echo "[INFO] Repository: $REPO_DIR"
+    echo "[INFO] OS bitness: $bits"
+    echo "[INFO] CMake X32_BIT: $x32_bit"
+    echo "[INFO] Build jobs: $build_jobs"
+    echo "[INFO] Build logs: $BUILD_LOG_DIR"
+
+
+    # --------------------------------------------------------
+    # 3-2. Configure Sonar SDK and applications
+    # --------------------------------------------------------
+
+    echo
+    echo "[3-2] Configuring Sonar CMake project..."
+
+    run_build "sonar-configure" \
+        cmake \
+        -S "$REPO_DIR/sdkExample" \
+        -B "$build_dir" \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DX32_BIT="$x32_bit"
+
+
+    # --------------------------------------------------------
+    # 3-3. Build Sonar programs
+    # --------------------------------------------------------
+
+    echo
+    echo "[3-3] Building Sonar SDK and programs..."
+
+    run_build "sonar-build" \
+        cmake --build "$build_dir" \
+        --parallel "$build_jobs"
+
+    check_binary "$build_dir/bin/sdkExample"
+    check_binary "$build_dir/bin/sonarReplay"
+
+
+    # --------------------------------------------------------
+    # 3-4. Build DVL
+    # --------------------------------------------------------
+
+    echo
+    echo "[3-4] Building DVL..."
+
+    run_build "dvl-build" \
+        gcc -std=c11 -O2 -Wall -Wextra -pthread \
+        "$REPO_DIR/dvl_test.c" \
+        -o "$REPO_DIR/dvl_test" \
+        -lm
+
+    check_binary "$REPO_DIR/dvl_test"
+
+
+    # --------------------------------------------------------
+    # 3-5. Build Servo
+    # --------------------------------------------------------
+
+    echo
+    echo "[3-5] Building Servo..."
+
+    run_build "servo-build" \
+        gcc -std=c11 -O2 -Wall -Wextra -pthread \
+        "$REPO_DIR/servo.c" \
+        -o "$REPO_DIR/servo"
+
+    check_binary "$REPO_DIR/servo"
+
+
+    # --------------------------------------------------------
+    # 3-6. Build Controller CLI
+    # --------------------------------------------------------
+
+    echo
+    echo "[3-6] Building Controller CLI..."
+
+    run_build "controller-cli-build" \
+        gcc -std=c11 -O2 -Wall -Wextra \
+        "$REPO_DIR/controller/controller.c" \
+        -o "$REPO_DIR/controller/controller"
+
+    check_binary "$REPO_DIR/controller/controller"
+
+
+    # --------------------------------------------------------
+    # 3-7. Build Controller daemon
+    # --------------------------------------------------------
+
+    echo
+    echo "[3-7] Building Controller daemon..."
+
+    run_build "controllerd-build" \
+        gcc -std=c11 -O2 -Wall -Wextra -pthread \
+        "$REPO_DIR/controller/controllerd.c" \
+        -o "$REPO_DIR/controller/controllerd"
+
+    check_binary "$REPO_DIR/controller/controllerd"
+
+
+    # --------------------------------------------------------
+    # 3-8. Build Controller TUI
+    # --------------------------------------------------------
+
+    echo
+    echo "[3-8] Building Controller TUI..."
+
+    local -a ncurses_flags=()
+
+    read -r -a ncurses_flags <<< \
+        "$(pkg-config --cflags --libs ncursesw)"
+
+    run_build "controller-tui-build" \
+        gcc -std=c11 -O2 -Wall -Wextra -pthread \
+        "$REPO_DIR/controller/controller_tui.c" \
+        -o "$REPO_DIR/controller/controller_tui" \
+        "${ncurses_flags[@]}"
+
+    check_binary "$REPO_DIR/controller/controller_tui"
+
+
+    # --------------------------------------------------------
+    # 3-9. Final build verification
+    # --------------------------------------------------------
+
+    echo
+    echo "[3-9] Verifying all build outputs..."
+
+    local binaries=(
+        "$build_dir/bin/sdkExample"
+        "$build_dir/bin/sonarReplay"
+        "$REPO_DIR/dvl_test"
+        "$REPO_DIR/servo"
+        "$REPO_DIR/controller/controller"
+        "$REPO_DIR/controller/controllerd"
+        "$REPO_DIR/controller/controller_tui"
+    )
+
+    local binary
+
+    for binary in "${binaries[@]}"; do
+        check_binary "$binary"
+    done
+
+    echo
+    echo "[OK] All 7 programs built successfully."
+    echo "[OK] STEP 3 completed successfully."
+}
+
 
 
 # ------------------------------------------------------------
@@ -397,12 +618,16 @@ main() {
     confirm_step 2 "Install Required Packages"
     step_2
 
+    # STEP 3 - Build all programs
+    confirm_step 3 "Build Sonar, DVL, Servo and Controller"
+    step_3
+
     echo
     echo "========================================"
-    echo " STEP 1-2 COMPLETED"
+    echo " STEP 1-3 COMPLETED"
     echo "========================================"
 
-    echo "[INFO] STEP 3-7 are not implemented yet."
+    echo "[INFO] STEP 4-7 are not implemented yet."
     echo "[INFO] Installation is NOT complete."
 }
 
