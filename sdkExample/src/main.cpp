@@ -221,6 +221,12 @@ int main(int argc, char **argv)
             SonarApp *sonarApp =
                 dynamic_cast<SonarApp *>(app);
 
+            // SonarApp 객체가 아닌 경우 건너뛰기
+            if (sonarApp == nullptr)
+            {
+                continue;
+            }
+
             if (sonarApp->updateViewer(appPath, g_serviceMode))
             {
                 if (g_serviceMode)
