@@ -12,6 +12,7 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <time.h>
+#include <sys/time.h>
 #include <unistd.h>
 #include "dvlCommandSocket.h"
 
@@ -361,28 +362,100 @@ int main(int argc, char *argv[])
         return EXIT_FAILURE;
     }
 
-    int sock = socket(AF_INET, SOCK_STREAM, 0);
-    if (sock < 0)
-    {
-        perror("socket");
-        return EXIT_FAILURE;
-    }
-
     struct sockaddr_in addr = {0};
+
     addr.sin_family = AF_INET;
     addr.sin_port = htons((unsigned short)port);
+
     if (inet_pton(AF_INET, ip, &addr.sin_addr) != 1)
     {
         fprintf(stderr, "Invalid IPv4 address: %s\n", ip);
-        close(sock);
         return EXIT_FAILURE;
     }
-    if (connect(sock, (struct sockaddr *)&addr, sizeof(addr)) < 0)
+
+    // Manual mode: 1 attempt
+    // Service mode: up to 4 attempts
+    const int max_attempts = service_mode ? 4 : 1;
+
+    int sock = -1;
+
+    for (int attempt = 1;
+         attempt <= max_attempts && !g_stop_requested;
+         ++attempt)
     {
-        perror("connect");
+        // Create a new socket for each connection attempt
+        sock = socket(AF_INET, SOCK_STREAM, 0);
+
+        if (sock < 0)
+        {
+            perror("socket");
+            return EXIT_FAILURE;
+        }
+
+        // Limit TCP connection waiting in service mode
+        if (service_mode)
+        {
+            struct timeval tv = {
+                .tv_sec = 2,
+                .tv_usec = 0};
+
+            if (setsockopt(
+                    sock,
+                    SOL_SOCKET,
+                    SO_SNDTIMEO,
+                    &tv,
+                    sizeof(tv)) != 0)
+            {
+                perror("setsockopt SO_SNDTIMEO");
+                close(sock);
+                return EXIT_FAILURE;
+            }
+        }
+
+        if (connect(
+                sock,
+                (struct sockaddr *)&addr,
+                sizeof(addr)) == 0)
+        {
+            break;
+        }
+
+        fprintf(stderr,
+                "[WARN] DVL connect attempt %d/%d failed: %s\n",
+                attempt, max_attempts, strerror(errno));
+
         close(sock);
+        sock = -1;
+
+        // Wait before the next attempt
+        if (attempt < max_attempts && !g_stop_requested)
+        {
+            struct timespec delay = {
+                .tv_sec = 1,
+                .tv_nsec = 0};
+
+            while (nanosleep(&delay, &delay) < 0 &&
+                   errno == EINTR &&
+                   !g_stop_requested)
+            {
+            }
+        }
+    }
+
+    if (sock < 0)
+    {
+        if (g_stop_requested)
+        {
+            return EXIT_SUCCESS;
+        }
+
+        fprintf(stderr,
+                "[ERROR] DVL connection unavailable: %s:%d\n",
+                ip, port);
+
         return EXIT_FAILURE;
     }
+
     printf("DVL 연결 성공: %s:%d\n", ip, port);
     printf("출력 주파수: %.2f Hz | 출력 간격: %.1f ms\n", hz, 1000.0 / hz);
     printf("각 출력 시점의 최신 velocity / position_local (평균 계산 없음)\n\n");

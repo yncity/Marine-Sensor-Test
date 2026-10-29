@@ -15,6 +15,8 @@ set -a
 source "$ENV_FILE"
 set +a
 
+# Repository root for Sonar recordings
+export MARINE_REPO_DIR="$REPO_DIR"
 # Controller daemon uses this script for the q command
 export MARINE_STOP_SCRIPT="$REPO_DIR/desktop/marine-stop.sh"
 
@@ -44,6 +46,9 @@ if [[ ! -x "$CONTROLLER_CLI" ]]; then
 fi
 
 mkdir -p -- "$RUN_DIR" "$LOG_DIR"
+
+# Prepare Sonar recording directories
+mkdir -p -- "$REPO_DIR/Video" "$REPO_DIR/Logfile"
 chmod 700 "$RUN_DIR"
 
 # Prevent simultaneous startup requests
@@ -83,6 +88,32 @@ ipc_ready() {
     [[ "$reply" == "$prefix"* ]]
 }
 
+# Check active Linux process, excluding zombies
+process_active() {
+    local pid="$1"
+    local stat_line="" stat_tail="" state=""
+
+    if ! kill -0 "$pid" 2>/dev/null; then
+        return 1
+    fi
+
+    if [[ -r "/proc/$pid/stat" ]]; then
+        if ! IFS= read -r stat_line < "/proc/$pid/stat"; then
+            return 0
+        fi
+
+        stat_tail="${stat_line##*) }"
+        state="${stat_tail%% *}"
+
+        case "$state" in
+            Z|X|x)
+                return 1
+                ;;
+        esac
+    fi
+
+    return 0
+}
 
 # 3. Start a program only if it is not running
 start_one() {
@@ -105,7 +136,7 @@ start_one() {
         read -r old_pid < "$pidfile" || true
 
         if [[ "$old_pid" =~ ^[0-9]+$ ]] &&
-           kill -0 "$old_pid" 2>/dev/null; then
+            process_active "$old_pid"; then
 
             actual="$(readlink -f -- "/proc/$old_pid/exe" 2>/dev/null || true)"
 
@@ -124,7 +155,7 @@ start_one() {
     fi
 
     # Never remove an existing IPC socket automatically
-    if [[ -e "$sock" ]]; then
+    if [[ -e "$sock" || -L "$sock" ]]; then
         echo "[ERROR] $name socket already exists: $sock" >&2
         echo "Check the running process or stale socket." >&2
         return 1
@@ -145,7 +176,7 @@ start_one() {
     while ((SECONDS < deadline)); do
 
         # Process exited before IPC initialization
-        if ! kill -0 "$pid" 2>/dev/null; then
+        if ! process_active "$pid"; then
             echo "[ERROR] $name exited during startup." >&2
             echo "Check log: $logfile" >&2
             rm -f -- "$pidfile"

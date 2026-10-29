@@ -22,19 +22,52 @@
 #include <string>
 #include <cstdlib>
 #include <cstdio>
+#include <filesystem>
 
 using namespace IslSdk;
 
-// 홈 디렉터리 경로를 구하는 함수
+// Get user's home directory
 std::string getHomeDir()
 {
     const char *home = std::getenv("HOME");
     return home ? std::string(home) : "";
 }
 
-// 동적 경로 생성 (~/ 확장 문제 완벽 해결)
-const std::string VIDEO_DIR = getHomeDir() + "/Marine-Sensor-Test/Video/";
-const std::string LOG_DIR = getHomeDir() + "/Marine-Sensor-Test/Logfile/";
+// Resolve repository root directory
+std::string getStorageRoot()
+{
+    const char *repo = std::getenv("MARINE_REPO_DIR");
+
+    if (repo && repo[0] == '/')
+    {
+        return std::string(repo);
+    }
+
+    // Fallback for standalone execution
+    return getHomeDir() + "/Marine-Sensor-Test";
+}
+
+// Sonar recording directories
+const std::string VIDEO_DIR = getStorageRoot() + "/Video/";
+const std::string LOG_DIR = getStorageRoot() + "/Logfile/";
+
+// Ensure recording directory exists
+static bool prepareDirectory(const std::string &dir)
+{
+    std::error_code ec;
+
+    std::filesystem::create_directories(dir, ec);
+
+    if (ec)
+    {
+        std::cerr << "[ERROR] Cannot create directory: "
+                  << dir << " (" << ec.message() << ")"
+                  << std::endl;
+        return false;
+    }
+
+    return true;
+}
 
 //--------------------------------------------------------------------------------------------------
 SonarApp::SonarApp(bool autoScan)
@@ -340,6 +373,12 @@ void SonarApp::doTask(int_t key, const std::string &path)
                 break;
             }
 
+            // Prepare ISLOG directory
+            if (!prepareDirectory(LOG_DIR))
+            {
+                break;
+            }
+
             // =====================================
             // 2. 저장 파일명 생성
             // =====================================
@@ -446,6 +485,11 @@ void SonarApp::doTask(int_t key, const std::string &path)
                     Debug::Severity::Warning,
                     name.c_str(),
                     "Sonar image buffer is not ready");
+                break;
+            }
+            // Prepare video recording directory
+            if (!prepareDirectory(VIDEO_DIR))
+            {
                 break;
             }
 
