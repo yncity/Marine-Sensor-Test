@@ -489,6 +489,9 @@ step_3() {
         --parallel "$build_jobs"
 
     check_binary "$build_dir/bin/sdkExample"
+
+    # Ensure sonarReplay is executable after CMake build
+    chmod u+x -- "$build_dir/bin/sonarReplay"
     check_binary "$build_dir/bin/sonarReplay"
 
 
@@ -986,6 +989,27 @@ step_5() {
     sudo udevadm control --reload-rules
 
     echo "[OK] PWM udev rule installed."
+    # Verify PWM permissions if the kernel PWM device already exists.
+    if [[ -d /sys/class/pwm/pwmchip0 ]]; then
+
+        echo "[INFO] PWM device detected. Checking permission helper..."
+
+        sudo /usr/local/libexec/marine-pwm-permissions.sh ||
+            error_exit "PWM permission setup failed."
+
+        for attr in period duty_cycle enable; do
+            file="/sys/class/pwm/pwmchip0/pwm0/$attr"
+
+            [[ -e "$file" && -w "$file" ]] ||
+                error_exit "PWM attribute is not writable: $file"
+        done
+
+        echo "[OK] PWM permissions verified."
+
+    else
+        echo "[INFO] PWM device is not available yet."
+        echo "[INFO] Verify PWM permissions after reboot."
+    fi
 
 
     # --------------------------------------------------------
