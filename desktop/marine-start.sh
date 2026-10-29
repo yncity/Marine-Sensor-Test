@@ -248,25 +248,87 @@ prepare_servo_pwm() {
 }
 
 
-# 4. Launch programs
+
+# ------------------------------------------------------------
+# 4. Wait for Ethernet before starting network sensors
+# ------------------------------------------------------------
+
+network_log() {
+    local message="$1"
+
+    echo "$message"
+    printf '%s %s\n' "$(date -Is)" "$message" \
+        >> "$LOG_DIR/network-start.log"
+}
+
+wait_for_ethernet() {
+    local iface="${MARINE_ETH_IFACE:-eth0}"
+    local expected_ip="${MARINE_ETH_CIDR:-192.168.1.100/24}"
+    local max_wait="${MARINE_ETH_WAIT_SECONDS:-150}"
+
+    local carrier_file="/sys/class/net/$iface/carrier"
+    local elapsed=0
+    local stable=0
+    local addresses=""
+
+    if [[ ! "$max_wait" =~ ^[1-9][0-9]*$ ]]; then
+        network_log "[ERROR] Invalid Ethernet wait timeout."
+        return 1
+    fi
+
+    network_log "[INFO] Waiting for Ethernet..."
+    network_log "[INFO] Interface: $iface"
+    network_log "[INFO] Expected IP: $expected_ip"
+    network_log "[INFO] Timeout: ${max_wait}s"
+
+    while (( elapsed < max_wait )); do
+
+        addresses="$(
+            ip -o -4 addr show dev "$iface" 2>/dev/null || true
+        )"
+
+        # Both physical carrier and IPv4 address must be ready.
+        if [[ -r "$carrier_file" ]] &&
+           [[ "$(cat "$carrier_file" 2>/dev/null)" == "1" ]] &&
+           [[ "$addresses" == *" inet $expected_ip "* ]]; then
+
+            stable=$((stable + 1))
+
+            # Require three consecutive successful checks.
+            if (( stable >= 3 )); then
+                network_log "[OK] Ethernet ready (${elapsed}s)."
+                return 0
+            fi
+
+        else
+            stable=0
+        fi
+
+        if (( elapsed > 0 && elapsed % 15 == 0 )); then
+            network_log "[WAIT] Ethernet not ready (${elapsed}s)."
+        fi
+
+        sleep 1
+        elapsed=$((elapsed + 1))
+    done
+
+    network_log "[ERROR] Ethernet timeout after ${max_wait}s."
+    return 1
+}
+
+# ------------------------------------------------------------
+# 5. Launch programs
+# ------------------------------------------------------------
+
 failures=0
 
+# 5-1. Start Controller first.
 start_one controllerd \
     "$REPO_DIR/controller/controllerd" \
     "$REPO_DIR/controller" \
     "$MARINE_CONTROLLER_SOCKET" || ((failures+=1))
 
-start_one sonar \
-    "$REPO_DIR/sdkExample/build/bin/sdkExample" \
-    "$REPO_DIR/sdkExample/build/bin" \
-    "$MARINE_SONAR_SOCKET" --service || ((failures+=1))
-
-start_one dvl \
-    "$REPO_DIR/dvl_test" \
-    "$REPO_DIR" \
-    "$MARINE_DVL_SOCKET" --service || ((failures+=1))
-
-# Start Servo only after PWM0 permissions are ready.
+# 5-2. Servo does not depend on Ethernet.
 if prepare_servo_pwm; then
 
     start_one servo \
@@ -276,6 +338,26 @@ if prepare_servo_pwm; then
 
 else
     echo "[ERROR] Servo startup skipped: PWM0 not ready." >&2
+    ((failures+=1))
+fi
+
+# 5-3. Wait for Ethernet before starting Sonar and DVL.
+if wait_for_ethernet; then
+
+    # 5-4. Start Sonar after Ethernet becomes ready.
+    start_one sonar \
+        "$REPO_DIR/sdkExample/build/bin/sdkExample" \
+        "$REPO_DIR/sdkExample/build/bin" \
+        "$MARINE_SONAR_SOCKET" --service || ((failures+=1))
+
+    # 5-5. Start DVL after Ethernet becomes ready.
+    start_one dvl \
+        "$REPO_DIR/dvl_test" \
+        "$REPO_DIR" \
+        "$MARINE_DVL_SOCKET" --service || ((failures+=1))
+
+else
+    echo "[ERROR] Sonar and DVL startup skipped: Ethernet unavailable." >&2
     ((failures+=1))
 fi
 

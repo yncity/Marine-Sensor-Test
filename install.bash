@@ -215,6 +215,7 @@ step_1() {
 
         "dvl_test.c"
         "servo.c"
+        "sonarReplay"
 
         "controller/controller.c"
         "controller/controllerd.c"
@@ -289,6 +290,7 @@ step_2() {
         build-essential
         cmake
         pkg-config
+        whiptail
 
         libopencv-dev
         libncurses-dev
@@ -328,6 +330,7 @@ step_2() {
         tail
         readlink
         nohup
+        whiptail
 
         xdg-user-dir
         desktop-file-validate
@@ -488,9 +491,23 @@ step_3() {
 
     check_binary "$build_dir/bin/sdkExample"
 
-    # Ensure sonarReplay is executable after CMake build
+    # Ensure compiled sonarReplay is executable.
     chmod u+x -- "$build_dir/bin/sonarReplay"
     check_binary "$build_dir/bin/sonarReplay"
+
+    # Ensure repository-root sonarReplay launcher is executable.
+    echo "[3-3] Checking sonarReplay launcher..."
+
+    [[ -f "$REPO_DIR/sonarReplay" ]] ||
+        error_exit "sonarReplay launcher not found."
+
+    bash -n "$REPO_DIR/sonarReplay" ||
+        error_exit "sonarReplay launcher syntax error."
+
+    chmod u+x -- "$REPO_DIR/sonarReplay"
+
+    check_binary "$REPO_DIR/sonarReplay"
+
 
 
     # --------------------------------------------------------

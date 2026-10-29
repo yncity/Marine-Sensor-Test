@@ -173,7 +173,7 @@ static void draw_screen(const char *command, const char *message)
 
     draw_text(
         rows - 1, 2,
-        "Tab: pane | PgUp/PgDn: scroll | Home/End: history/live | F10: exit",
+        "Tab: pane | PgUp/PgDn: scroll | Home/End: history/live | F10/Ctrl+X: exit",
         cols - 4);
 
     size_t visible_len = strlen(visible);
