@@ -337,13 +337,9 @@ step_2() {
     local cmd
 
     for cmd in "${required_commands[@]}"; do
-
         if ! command -v "$cmd" >/dev/null 2>&1; then
             error_exit "Required command not found: $cmd"
         fi
-
-        [[ -x /usr/bin/bash ]] ||
-        error_exit "Bash interpreter not found: /usr/bin/bas    
 
         echo "[OK] $cmd"
     done
@@ -770,6 +766,10 @@ step_4() {
         bash -n "$src" ||
             error_exit "Script syntax check failed: $file"
 
+            # The shebang must be the first two bytes of the file.
+            [[ "$(head -c 2 "$src")" == "#!" ]] ||
+                error_exit "Script must begin with a shebang (#!): $file"
+
         grep -Fq 'RUN_DIR="$MARINE_IPC_DIR"' "$src" ||
             error_exit "Script does not use common runtime directory: $file"
 
@@ -1109,6 +1109,9 @@ step_6() {
 
     command -v desktop-file-validate >/dev/null 2>&1 ||
         error_exit "desktop-file-validate is not installed."
+        # The desktop autostart explicitly uses /usr/bin/bash.
+        [[ -x /usr/bin/bash ]] ||
+            error_exit "Bash interpreter not found: /usr/bin/bash"
 
     echo "[OK] Autostart requirements verified."
 
