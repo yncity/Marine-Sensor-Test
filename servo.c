@@ -221,7 +221,7 @@ int main(int argc, char **argv)
     }
 
     puts("AGFRC A35BHLP / hardware PWM test");
-    puts("GPIO18 (physical pin 12), 333 Hz");
+    puts("PWM0 (GPIO configured by Device Tree overlay), 333 Hz");
     puts("Starting at neutral (1520 us). Do not use end positions before checking clearance.");
     if (service_mode)
     {

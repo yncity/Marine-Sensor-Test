@@ -215,6 +215,8 @@ step_1() {
         "desktop/marine-stop.sh"
         "desktop/marine-launch.sh"
         "desktop/marine-ipc.env"
+        "desktop/marine-pwm-permissions.sh"
+        "desktop/99-marine-pwm.rules"
         "desktop/marine-autostart.desktop.in"
         "desktop/marine-launch.desktop.in"
     )
@@ -794,6 +796,187 @@ step_4() {
     echo "[OK] STEP 4 completed successfully."
 }
 
+
+# ------------------------------------------------------------
+# 6. STEP 5 - Configure Servo PWM and GPIO permissions
+# ------------------------------------------------------------
+
+step_5() {
+
+    echo
+    echo "[5-1] Checking PWM configuration..."
+
+    local pwm_gpio="${MARINE_PWM_GPIO:-12}"
+    local overlay_line=""
+    local config_file=""
+    local existing_overlay=""
+    local install_user=""
+    local backup_file=""
+
+    # PWM0 GPIO selection
+    case "$pwm_gpio" in
+        12)
+            overlay_line="dtoverlay=pwm,pin=12,func=4"
+            ;;
+        18)
+            overlay_line="dtoverlay=pwm,pin=18,func=2"
+            ;;
+        *)
+            error_exit "Supported PWM GPIO values are 12 or 18."
+            ;;
+    esac
+
+    echo "[INFO] PWM GPIO: BCM$pwm_gpio"
+    echo "[INFO] Overlay: $overlay_line"
+
+    command -v udevadm >/dev/null 2>&1 ||
+        error_exit "udevadm is required."
+
+    getent group gpio >/dev/null ||
+        error_exit "gpio group not found."
+
+
+    # --------------------------------------------------------
+    # 5-2. Locate Raspberry Pi boot configuration
+    # --------------------------------------------------------
+
+    echo
+    echo "[5-2] Checking Raspberry Pi boot configuration..."
+
+    if [[ -f /boot/firmware/config.txt ]]; then
+        config_file="/boot/firmware/config.txt"
+    elif [[ -f /boot/config.txt ]]; then
+        config_file="/boot/config.txt"
+    else
+        error_exit "Raspberry Pi boot config.txt not found."
+    fi
+
+    echo "[INFO] Boot config: $config_file"
+
+
+    # --------------------------------------------------------
+    # 5-3. Configure PWM overlay
+    # --------------------------------------------------------
+
+    echo
+    echo "[5-3] Checking existing PWM overlays..."
+
+    existing_overlay="$(
+        grep -E \
+        '^[[:space:]]*dtoverlay[[:space:]]*=[[:space:]]*pwm(-2chan)?([,[:space:]]|$)' \
+        "$config_file" || true
+    )"
+
+    if [[ -n "$existing_overlay" ]]; then
+
+        # Avoid modifying an existing, different PWM mapping.
+        if [[ "$existing_overlay" != "$overlay_line" ]] &&
+           ! [[ "$pwm_gpio" == 18 &&
+                 "$existing_overlay" == "dtoverlay=pwm" ]]; then
+
+            echo "[ERROR] Existing PWM overlay:" >&2
+            echo "$existing_overlay" >&2
+
+            error_exit "PWM overlay conflict. Check GPIO mapping manually."
+        fi
+
+        echo "[OK] Existing PWM overlay is compatible."
+
+    else
+
+        # Backup the boot configuration before editing it.
+        backup_file="${config_file}.marine-backup-$(date +%Y%m%d-%H%M%S)"
+
+        sudo cp -a -- "$config_file" "$backup_file"
+
+        printf '\n# Marine-Sensor-Test Servo PWM0\n[all]\n%s\n' \
+            "$overlay_line" |
+            sudo tee -a "$config_file" >/dev/null
+
+        echo "[OK] PWM overlay added."
+        echo "[INFO] Backup: $backup_file"
+    fi
+
+
+    # --------------------------------------------------------
+    # 5-4. Configure user group
+    # --------------------------------------------------------
+
+    echo
+    echo "[5-4] Checking gpio group membership..."
+
+    install_user="$(id -un)"
+
+    if ! id -nG "$install_user" |
+         tr ' ' '\n' |
+         grep -Fxq gpio; then
+
+        sudo usermod -aG gpio "$install_user"
+
+        echo "[INFO] Added $install_user to gpio group."
+        echo "[INFO] Re-login is required."
+
+    else
+        echo "[OK] User already belongs to gpio group."
+    fi
+
+
+    # --------------------------------------------------------
+    # 5-5. Install PWM permission helper
+    # --------------------------------------------------------
+
+    echo
+    echo "[5-5] Installing PWM permissions helper..."
+
+    sh -n "$REPO_DIR/desktop/marine-pwm-permissions.sh" ||
+        error_exit "PWM helper script syntax error."
+
+    sudo install -d -m 0755 /usr/local/libexec
+
+    sudo install -m 0755 \
+        "$REPO_DIR/desktop/marine-pwm-permissions.sh" \
+        /usr/local/libexec/marine-pwm-permissions.sh
+
+    echo "[OK] PWM permissions helper installed."
+
+
+    # --------------------------------------------------------
+    # 5-6. Install udev rule
+    # --------------------------------------------------------
+
+    echo
+    echo "[5-6] Installing PWM udev rule..."
+
+    sudo install -m 0644 \
+        "$REPO_DIR/desktop/99-marine-pwm.rules" \
+        /etc/udev/rules.d/99-marine-pwm.rules
+
+    sudo udevadm control --reload-rules
+
+    echo "[OK] PWM udev rule installed."
+
+
+    # --------------------------------------------------------
+    # 5-7. Final configuration summary
+    # --------------------------------------------------------
+
+    echo
+    echo "[5-7] Servo PWM configuration summary..."
+
+    echo "[OK] GPIO: BCM$pwm_gpio"
+    echo "[OK] PWM channel: PWM0"
+    echo "[OK] Target sysfs: /sys/class/pwm/pwmchip0/pwm0"
+    echo "[OK] Permissions group: gpio"
+    echo "[OK] Overlay: $overlay_line"
+
+    echo
+    echo "[INFO] Reboot is required before Servo validation."
+    echo "[INFO] No PWM signal or Servo movement was tested."
+
+    echo
+    echo "[OK] STEP 5 completed successfully."
+}
+
 # ------------------------------------------------------------
 # Main
 # ------------------------------------------------------------
@@ -827,11 +1010,17 @@ main() {
     confirm_step 4 "Configure IPC Runtime and Storage"
     step_4
 
-    echo " STEP 1-4 COMPLETED"
-    echo "========================================"
+    # STEP 5 - Servo PWM and GPIO permissions
+    confirm_step 5 "Configure Servo PWM and GPIO"
+    step_5
 
-    echo "[INFO] STEP 5-7 are not implemented yet."
+    echo
+    echo "========================================"
+    echo " STEP 1-5 COMPLETED"
+    echo "========================================"
+    echo "[INFO] STEP 6-7 are not implemented yet."
     echo "[INFO] Installation is NOT complete."
+    echo "[INFO] Reboot is required before Servo operation."
 }
 
 main "$@"

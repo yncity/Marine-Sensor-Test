@@ -1,0 +1,1 @@
+ACTION=="add", SUBSYSTEM=="pwm", KERNEL=="pwmchip0", RUN+="/usr/local/libexec/marine-pwm-permissions.sh"
