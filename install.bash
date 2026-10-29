@@ -1,0 +1,409 @@
+
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+
+# ============================================================
+# Marine-Sensor-Test Installation
+#
+# Target: Raspberry Pi OS (Desktop)
+# Execution: Normal user with sudo permissions
+#
+# Current implementation:
+#   STEP 1 - System environment check
+# ============================================================
+
+
+# ------------------------------------------------------------
+# 0. Global variables
+# ------------------------------------------------------------
+
+CURRENT_STEP=0
+
+# Resolve repository root from this script's location
+REPO_DIR="$(
+    cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P
+)"
+
+
+# ------------------------------------------------------------
+# 1. Common functions
+# ------------------------------------------------------------
+
+error_exit() {
+    echo
+    echo "[ERROR] STEP ${CURRENT_STEP}: $1" >&2
+    exit 1
+}
+
+on_error() {
+    local exit_code="$1"
+    local line="$2"
+    local command="$3"
+
+    echo
+    echo "[ERROR] Installation failed." >&2
+    echo "  STEP : $CURRENT_STEP" >&2
+    echo "  LINE : $line" >&2
+    echo "  CMD  : $command" >&2
+    echo "  CODE : $exit_code" >&2
+
+    exit "$exit_code"
+}
+
+trap 'on_error "$?" "$LINENO" "$BASH_COMMAND"' ERR
+
+
+# Require confirmation before every STEP
+confirm_step() {
+    local step="$1"
+    local title="$2"
+    local answer=""
+
+    CURRENT_STEP="$step"
+
+    echo
+    echo "========================================"
+    echo " STEP $step/7 - $title"
+    echo "========================================"
+
+    if ! read -r -p "Continue? [y/N]: " answer; then
+        echo "[CANCELLED] No input received."
+        exit 2
+    fi
+
+    if [[ "$answer" != "y" ]]; then
+        echo "[CANCELLED] Installation stopped by user."
+        exit 2
+    fi
+
+    echo "[INFO] Starting STEP $step..."
+}
+
+
+# ------------------------------------------------------------
+# 2. STEP 1 - System environment check
+# ------------------------------------------------------------
+
+step_1() {
+
+    echo
+    echo "[1-1] Checking operating system..."
+
+    [[ "$(uname -s)" == "Linux" ]] ||
+        error_exit "Linux is required."
+
+    [[ -r /etc/os-release ]] ||
+        error_exit "/etc/os-release not found."
+
+    source /etc/os-release
+
+    case "${ID:-}" in
+        raspbian|debian)
+            echo "[OK] OS: ${PRETTY_NAME:-Unknown}"
+            ;;
+        *)
+            error_exit "Raspberry Pi OS is required. Detected: ${ID:-unknown}"
+            ;;
+    esac
+
+
+    echo
+    echo "[1-2] Checking Raspberry Pi hardware..."
+
+    [[ -r /proc/device-tree/model ]] ||
+        error_exit "Raspberry Pi hardware not detected."
+
+    local model
+    model="$(tr -d '\000' < /proc/device-tree/model)"
+
+    [[ "$model" == *"Raspberry Pi"* ]] ||
+        error_exit "Unsupported hardware: $model"
+
+    echo "[OK] Hardware: $model"
+
+
+    echo
+    echo "[1-3] Checking architecture..."
+
+    local arch bits
+
+    arch="$(uname -m)"
+    bits="$(getconf LONG_BIT)"
+
+    case "$arch" in
+        aarch64|armv7l|armv6l)
+            echo "[OK] CPU architecture: $arch"
+            ;;
+        *)
+            error_exit "Unsupported CPU architecture: $arch"
+            ;;
+    esac
+
+    case "$bits" in
+        32|64)
+            echo "[OK] OS bitness: ${bits}-bit"
+            ;;
+        *)
+            error_exit "Unsupported OS bitness: $bits"
+            ;;
+    esac
+
+
+    echo
+    echo "[1-4] Checking installation user..."
+
+    [[ "$(id -u)" -ne 0 ]] ||
+        error_exit "Do not run this installer as root."
+
+    [[ -n "${HOME:-}" && -d "$HOME" ]] ||
+        error_exit "A valid user HOME directory is required."
+
+    echo "[OK] User: $(id -un)"
+    echo "[OK] HOME: $HOME"
+
+
+    echo
+    echo "[1-5] Checking sudo permissions..."
+
+    command -v sudo >/dev/null 2>&1 ||
+        error_exit "sudo is not installed."
+
+    if ! sudo -v; then
+        error_exit "sudo authentication failed."
+    fi
+
+    echo "[OK] sudo permission verified."
+
+
+    echo
+    echo "[1-6] Checking package manager..."
+
+    command -v apt-get >/dev/null 2>&1 ||
+        error_exit "apt-get not found."
+
+    command -v dpkg-query >/dev/null 2>&1 ||
+        error_exit "dpkg-query not found."
+
+    echo "[OK] APT package manager available."
+
+
+    echo
+    echo "[1-7] Checking repository files..."
+
+    echo "[INFO] Repository: $REPO_DIR"
+
+    # Desktop Exec paths require a simple installation path
+    if [[ "$REPO_DIR" =~ [[:space:]] ]]; then
+        error_exit "Repository path must not contain whitespace."
+    fi
+
+    local required_files=(
+        "sdkExample/CMakeLists.txt"
+        "sdkExample/islSdk/CMakeLists.txt"
+        "sdkExample/src/main.cpp"
+        "sdkExample/src/sonarApp.cpp"
+
+        "dvl_test.c"
+        "servo.c"
+
+        "controller/controller.c"
+        "controller/controllerd.c"
+        "controller/controller_tui.c"
+
+        "desktop/marine-start.sh"
+        "desktop/marine-stop.sh"
+        "desktop/marine-launch.sh"
+        "desktop/marine-ipc.env"
+        "desktop/marine-sensors.conf"
+        "desktop/marine-autostart.desktop.in"
+        "desktop/marine-launch.desktop.in"
+    )
+
+    local file
+
+    for file in "${required_files[@]}"; do
+        [[ -f "$REPO_DIR/$file" ]] ||
+            error_exit "Missing required file: $file"
+    done
+
+    echo "[OK] All required source files found."
+
+
+    echo
+    echo "[1-8] Checking desktop environment..."
+
+    if compgen -G '/usr/share/xsessions/*.desktop' > /dev/null ||
+       compgen -G '/usr/share/wayland-sessions/*.desktop' > /dev/null; then
+        echo "[OK] Graphical desktop session detected."
+    else
+        error_exit "A graphical desktop environment is required."
+    fi
+
+    if [[ -z "${XDG_RUNTIME_DIR:-}" ]]; then
+        echo "[INFO] No active desktop runtime detected."
+        echo "[INFO] Installation may run over SSH."
+        echo "[INFO] Runtime will be created by the login session."
+    fi
+
+
+    echo
+    echo "[1-9] Checking available storage..."
+
+    df -h -- "$REPO_DIR"
+
+    echo
+    echo "[OK] STEP 1 completed successfully."
+}
+
+
+# ------------------------------------------------------------
+# 3. STEP 2 - Install required packages
+# ------------------------------------------------------------
+
+step_2() {
+
+    echo
+    echo "[2-1] Updating APT package lists..."
+
+    # Stop if any repository update fails
+    sudo apt-get -o APT::Update::Error-Mode=any update
+
+    echo "[OK] APT package lists updated."
+
+
+    echo
+    echo "[2-2] Installing required packages..."
+
+    local packages=(
+        build-essential
+        cmake
+        pkg-config
+
+        libopencv-dev
+        libncurses-dev
+
+        git
+        util-linux
+        coreutils
+
+        desktop-file-utils
+        xdg-user-dirs
+    )
+
+    printf '  - %s\n' "${packages[@]}"
+
+    # Use APT to install missing packages and dependencies.
+    # Do not perform a full OS upgrade.
+    sudo env DEBIAN_FRONTEND=noninteractive \
+        apt-get install -y --no-install-recommends \
+        "${packages[@]}"
+
+    echo "[OK] Package installation completed."
+
+
+    echo
+    echo "[2-3] Checking required commands..."
+
+    local required_commands=(
+        gcc
+        g++
+        make
+        cmake
+        pkg-config
+
+        git
+        flock
+        timeout
+        tail
+        readlink
+        nohup
+
+        xdg-user-dir
+        desktop-file-validate
+    )
+
+    local cmd
+
+    for cmd in "${required_commands[@]}"; do
+
+        if ! command -v "$cmd" >/dev/null 2>&1; then
+            error_exit "Required command not found: $cmd"
+        fi
+
+        echo "[OK] $cmd"
+    done
+
+
+    echo
+    echo "[2-4] Checking OpenCV..."
+
+    if ! pkg-config --exists opencv4; then
+        error_exit "OpenCV development files not detected."
+    fi
+
+    echo "[OK] OpenCV version: $(pkg-config --modversion opencv4)"
+
+
+    echo
+    echo "[2-5] Checking ncurses..."
+
+    if ! pkg-config --exists ncursesw; then
+        error_exit "ncurses development files not detected."
+    fi
+
+    echo "[OK] ncurses version: $(pkg-config --modversion ncursesw)"
+
+
+    echo
+    echo "[2-6] Checking compiler and CMake..."
+
+    gcc --version | head -n 1
+    g++ --version | head -n 1
+    cmake --version | head -n 1
+
+    echo
+    echo "[OK] STEP 2 completed successfully."
+}
+
+
+# ------------------------------------------------------------
+# Main
+# ------------------------------------------------------------
+
+
+# ------------------------------------------------------------
+# Main
+# ------------------------------------------------------------
+
+main() {
+
+    echo "========================================"
+    echo " Marine Sensor Installation"
+    echo "========================================"
+
+    echo "Repository: $REPO_DIR"
+    echo "Target    : Raspberry Pi OS Desktop"
+    echo "Mode      : User-level desktop autostart"
+
+    [[ -t 0 ]] ||
+        error_exit "Run this installer in an interactive terminal."
+
+    # STEP 1 - Environment
+    confirm_step 1 "System Environment Check"
+    step_1
+
+    # STEP 2 - Dependencies
+    confirm_step 2 "Install Required Packages"
+    step_2
+
+    echo
+    echo "========================================"
+    echo " STEP 1-2 COMPLETED"
+    echo "========================================"
+
+    echo "[INFO] STEP 3-7 are not implemented yet."
+    echo "[INFO] Installation is NOT complete."
+}
+
+main "$@"
