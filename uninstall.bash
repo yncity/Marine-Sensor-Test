@@ -33,11 +33,11 @@ DESKTOP_DIR="$(xdg-user-dir DESKTOP)"
 [[ "$DESKTOP_DIR" == "$HOME/"* ]] || fail "Desktop directory must be inside HOME: $DESKTOP_DIR"
 LAUNCHER="$DESKTOP_DIR/Marine Sensor Controller.desktop"
 if [[ -f "$AUTOSTART" ]]; then
-    grep -Fxq "Exec=$REPO_DIR/desktop/marine-start.sh" "$AUTOSTART" ||
+    grep -Fxq "Exec=/usr/bin/bash $REPO_DIR/desktop/marine-start.sh" "$AUTOSTART" ||
         fail "Autostart belongs to another repository. Refusing to delete."
 fi
 if [[ -f "$LAUNCHER" ]]; then
-    grep -Fxq "Exec=$REPO_DIR/desktop/marine-launch.sh" "$LAUNCHER" ||
+    grep -Fxq "Exec=/usr/bin/bash $REPO_DIR/desktop/marine-start.sh" "$AUTOSTART" ||
         fail "Desktop launcher belongs to another repository. Refusing to delete."
 fi
 
@@ -137,7 +137,7 @@ cat <<MSG
 After reboot, to make a fresh clone (ONLY after saving any needed recordings):
   cd ~
   rm -rf -- '$REPO_DIR'
-  git clone https://github.com/yncity/Marine-Sensor-Test.git TEST
+  git clone https://github.com/yncity/TEST.git TEST
   cd TEST
   bash install.bash
 MSG
