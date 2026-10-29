@@ -26,6 +26,36 @@ mkdir -p -- "$RUN_DIR"
 exec 9>"$RUN_DIR/start.lock"
 flock -x 9
 
+
+# Check whether a process is still active (excluding zombies)
+process_active() {
+    local pid="$1"
+    local stat_line="" stat_tail="" state=""
+
+    if ! kill -0 "$pid" 2>/dev/null; then
+        return 1
+    fi
+
+    # Check Linux process state
+    if [[ -r "/proc/$pid/stat" ]]; then
+        if ! IFS= read -r stat_line < "/proc/$pid/stat"; then
+            return 0
+        fi
+
+        stat_tail="${stat_line##*) }"
+        state="${stat_tail%% *}"
+
+        case "$state" in
+            Z|X|x)
+                return 1
+                ;;
+        esac
+    fi
+
+    return 0
+}
+
+
 # 3. Stop a verified process
 stop_one() {
     local name="$1" binary="$2" sock="$3" signal="$4"
@@ -52,7 +82,7 @@ stop_one() {
         return 1
     fi
 
-    if ! kill -0 "$pid" 2>/dev/null; then
+    if ! process_active "$pid"; then
         if [[ -e "$sock" || -L "$sock" ]]; then
             echo "[ERROR] $name stale socket requires inspection: $sock" >&2
             return 1
@@ -77,9 +107,9 @@ stop_one() {
         return 1
     fi
 
-    # Wait up to 5 seconds
+    # Wait up to 5 seconds for process termination
     for ((i=0; i<50; i++)); do
-        if ! kill -0 "$pid" 2>/dev/null; then
+        if ! process_active "$pid"; then
             if [[ -e "$sock" || -L "$sock" ]]; then
                 echo "[ERROR] $name exited but socket remains: $sock" >&2
                 return 1
