@@ -989,26 +989,55 @@ step_5() {
     sudo udevadm control --reload-rules
 
     echo "[OK] PWM udev rule installed."
-    # Verify PWM permissions if the kernel PWM device already exists.
+
+    # Verify PWM permissions without exporting or enabling PWM.
     if [[ -d /sys/class/pwm/pwmchip0 ]]; then
 
-        echo "[INFO] PWM device detected. Checking permission helper..."
+        echo "[INFO] PWM controller detected."
 
         sudo /usr/local/libexec/marine-pwm-permissions.sh ||
             error_exit "PWM permission setup failed."
 
-        for attr in period duty_cycle enable; do
-            file="/sys/class/pwm/pwmchip0/pwm0/$attr"
+        # Check the export file first.
+        if [[ ! -e /sys/class/pwm/pwmchip0/export ]]; then
+            error_exit "PWM export attribute is missing."
+        fi
 
-            [[ -e "$file" && -w "$file" ]] ||
-                error_exit "PWM attribute is not writable: $file"
-        done
+        # A newly added gpio group requires a new login.
+        if id -nG | tr ' ' '\n' | grep -Fxq gpio; then
 
-        echo "[OK] PWM permissions verified."
+            [[ -w /sys/class/pwm/pwmchip0/export ]] ||
+                error_exit "PWM export is not writable by this user."
+        else
+            echo "[INFO] gpio group membership requires re-login."
+        fi
+
+        # Check attributes only if PWM0 already exists.
+        if [[ -d /sys/class/pwm/pwmchip0/pwm0 ]]; then
+
+            for attr in period duty_cycle enable; do
+
+                file="/sys/class/pwm/pwmchip0/pwm0/$attr"
+
+                [[ -e "$file" ]] ||
+                    error_exit "PWM attribute missing: $file"
+
+                if id -nG | tr ' ' '\n' | grep -Fxq gpio; then
+                    [[ -w "$file" ]] ||
+                        error_exit "PWM attribute not writable: $file"
+                fi
+            done
+
+            echo "[OK] Existing PWM0 permissions verified."
+
+        else
+            echo "[INFO] PWM0 is not exported yet."
+            echo "[INFO] It will be prepared by marine-start.sh."
+        fi
 
     else
-        echo "[INFO] PWM device is not available yet."
-        echo "[INFO] Verify PWM permissions after reboot."
+        echo "[INFO] PWM controller not available yet."
+        echo "[INFO] Verify after reboot."
     fi
 
 

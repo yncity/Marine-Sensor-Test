@@ -203,6 +203,52 @@ start_one() {
 
 }
 
+
+# Prepare PWM0 before starting Servo.
+# udev handles sysfs ownership and permissions.
+prepare_servo_pwm() {
+
+    local chip="/sys/class/pwm/pwmchip0"
+    local channel="$chip/pwm0"
+    local i
+
+    if [[ ! -d "$chip" ]]; then
+        echo "[ERROR] PWM controller not found: $chip" >&2
+        return 1
+    fi
+
+    # Export PWM0 as the logged-in user.
+    if [[ ! -d "$channel" ]]; then
+
+        echo "[INFO] Exporting PWM0..."
+
+        if ! printf '0\n' > "$chip/export"; then
+            echo "[ERROR] PWM0 export failed." >&2
+            return 1
+        fi
+    fi
+
+    # Wait for the udev change event to apply permissions.
+    for ((i=0; i<50; i++)); do
+
+        if [[ -w "$channel/period" &&
+              -w "$channel/duty_cycle" &&
+              -w "$channel/enable" ]]; then
+
+            echo "[OK] PWM0 is ready for Servo."
+            return 0
+        fi
+
+        sleep 0.1
+    done
+
+    echo "[ERROR] PWM0 permissions are not ready." >&2
+    echo "[INFO] Check udev rules and gpio group." >&2
+
+    return 1
+}
+
+
 # 4. Launch programs
 failures=0
 
@@ -221,11 +267,18 @@ start_one dvl \
     "$REPO_DIR" \
     "$MARINE_DVL_SOCKET" --service || ((failures+=1))
 
-# Start Servo as the logged-in user
-start_one servo \
-    "$REPO_DIR/servo" \
-    "$REPO_DIR" \
-    "$MARINE_SERVO_SOCKET" --service || ((failures+=1))
+# Start Servo only after PWM0 permissions are ready.
+if prepare_servo_pwm; then
+
+    start_one servo \
+        "$REPO_DIR/servo" \
+        "$REPO_DIR" \
+        "$MARINE_SERVO_SOCKET" --service || ((failures+=1))
+
+else
+    echo "[ERROR] Servo startup skipped: PWM0 not ready." >&2
+    ((failures+=1))
+fi
 
 echo "[INFO] Logs: $LOG_DIR"
 

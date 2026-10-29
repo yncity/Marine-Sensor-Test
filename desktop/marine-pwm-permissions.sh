@@ -2,42 +2,54 @@
 #!/bin/sh
 set -eu
 
-# Allow the gpio group to access PWM0 through sysfs.
-# This script runs as root from a udev rule.
-# It never enables PWM output.
+# Marine-Sensor-Test PWM permissions
+# Raspberry Pi 3B+ / GPIO18 / PWM0
+#
+# udev add:
+#   Grant gpio group permission to export/unexport.
+#
+# udev change:
+#   Grant gpio group permission to PWM0 attributes.
+#
+# Do not export PWM inside the udev worker.
+# Do not enable PWM output here.
 
 CHIP="/sys/class/pwm/pwmchip0"
 
 [ -d "$CHIP" ] || exit 0
 
-# Export PWM channel 0 only if it is not already exported.
-# Exporting the channel does not enable its output.
-if [ ! -d "$CHIP/pwm0" ]; then
-    if ! printf '0' > "$CHIP/export"; then
-        [ -d "$CHIP/pwm0" ] || exit 1
-    fi
-fi
+# 1. Allow the gpio group to export and unexport PWM channels.
+for attr in export unexport; do
 
-# Wait briefly for the PWM channel files.
-count=0
+    file="$CHIP/$attr"
 
-while [ ! -d "$CHIP/pwm0" ] && [ "$count" -lt 20 ]; do
-    sleep 0.05
-    count=$((count + 1))
+    [ -e "$file" ] || {
+        echo "[ERROR] Missing PWM attribute: $file" >&2
+        exit 1
+    }
+
+    chgrp gpio "$file"
+    chmod g+w "$file"
 done
 
-[ -d "$CHIP/pwm0" ] || exit 1
+# 2. pwm0 might not exist during the initial add event.
+# It will be created by marine-start.sh.
+if [ ! -d "$CHIP/pwm0" ]; then
+    exit 0
+fi
 
-# Grant access only to root and the gpio group.
-for attr in \
-    export \
-    unexport \
-    pwm0/period \
-    pwm0/duty_cycle \
-    pwm0/enable; do
+# 3. Set permissions after PWM0 has been exported.
+for attr in period duty_cycle enable; do
 
-    chgrp gpio "$CHIP/$attr"
-    chmod 0660 "$CHIP/$attr"
+    file="$CHIP/pwm0/$attr"
+
+    [ -e "$file" ] || {
+        echo "[ERROR] Missing PWM attribute: $file" >&2
+        exit 1
+    }
+
+    chgrp gpio "$file"
+    chmod 0660 "$file"
 done
 
 exit 0
