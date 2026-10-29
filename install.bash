@@ -806,25 +806,14 @@ step_5() {
     echo
     echo "[5-1] Checking PWM configuration..."
 
-    local pwm_gpio="${MARINE_PWM_GPIO:-12}"
-    local overlay_line=""
+    # Fixed Servo wiring: GPIO18 (physical pin 12)
+    local pwm_gpio="18"
+    local overlay_line="dtoverlay=pwm,pin=18,func=2"
+
     local config_file=""
     local existing_overlay=""
     local install_user=""
     local backup_file=""
-
-    # PWM0 GPIO selection
-    case "$pwm_gpio" in
-        12)
-            overlay_line="dtoverlay=pwm,pin=12,func=4"
-            ;;
-        18)
-            overlay_line="dtoverlay=pwm,pin=18,func=2"
-            ;;
-        *)
-            error_exit "Supported PWM GPIO values are 12 or 18."
-            ;;
-    esac
 
     echo "[INFO] PWM GPIO: BCM$pwm_gpio"
     echo "[INFO] Overlay: $overlay_line"
