@@ -591,6 +591,208 @@ step_3() {
 }
 
 
+# ------------------------------------------------------------
+# 5. STEP 4 - Configure user runtime and storage
+# ------------------------------------------------------------
+
+step_4() {
+
+    echo
+    echo "[4-1] Validating IPC configuration..."
+
+    local env_file="$REPO_DIR/desktop/marine-ipc.env"
+    local session_runtime="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+    local state_base="${XDG_STATE_HOME:-$HOME/.local/state}"
+    local log_dir="$state_base/marine-sensors/logs"
+    local install_log_dir="$state_base/marine-sensors/install-logs"
+    local runtime_expected="$session_runtime/marine-sensors"
+    local saved_umask
+    local -a sockets expected_sockets
+    local i file dir src
+
+    [[ "$session_runtime" == /* ]] ||
+        error_exit "XDG_RUNTIME_DIR must be absolute."
+
+    [[ "$state_base" == /* ]] ||
+        error_exit "XDG_STATE_HOME must be absolute."
+
+    [[ -r "$env_file" ]] ||
+        error_exit "IPC environment file not found."
+
+    bash -n "$env_file" ||
+        error_exit "IPC environment file has a syntax error."
+
+    # Use a local runtime value for configuration validation.
+    # No actual runtime files are created here.
+    local XDG_RUNTIME_DIR="$session_runtime"
+    local MARINE_IPC_DIR=""
+    local MARINE_SONAR_SOCKET=""
+    local MARINE_DVL_SOCKET=""
+    local MARINE_SERVO_SOCKET=""
+    local MARINE_CONTROLLER_SOCKET=""
+
+    source "$env_file"
+
+    [[ "$MARINE_IPC_DIR" == "$runtime_expected" ]] ||
+        error_exit "MARINE_IPC_DIR does not match user runtime directory."
+
+    sockets=(
+        "$MARINE_SONAR_SOCKET"
+        "$MARINE_DVL_SOCKET"
+        "$MARINE_SERVO_SOCKET"
+        "$MARINE_CONTROLLER_SOCKET"
+    )
+
+    expected_sockets=(
+        "$runtime_expected/sonar.sock"
+        "$runtime_expected/dvl.sock"
+        "$runtime_expected/servo.sock"
+        "$runtime_expected/controller.sock"
+    )
+
+    for ((i=0; i<${#sockets[@]}; i++)); do
+
+        [[ "${sockets[i]}" == "${expected_sockets[i]}" ]] ||
+            error_exit "IPC socket path mismatch: ${sockets[i]}"
+
+        ((${#sockets[i]} < 108)) ||
+            error_exit "IPC socket path is too long: ${sockets[i]}"
+    done
+
+    echo "[OK] IPC runtime: $runtime_expected"
+    printf '[OK] Socket: %s\n' "${sockets[@]}"
+
+
+    # --------------------------------------------------------
+    # 4-2. Check runtime environment
+    # --------------------------------------------------------
+
+    echo
+    echo "[4-2] Checking logged-in user runtime directory..."
+
+    if [[ -d "$session_runtime" ]]; then
+
+        [[ -O "$session_runtime" && -w "$session_runtime" ]] ||
+            error_exit "User runtime directory is not owned/writable by this user."
+
+        echo "[OK] Runtime base is owned by current user: $session_runtime"
+
+    else
+        echo "[INFO] Runtime base does not exist in this session."
+        echo "[INFO] It will be prepared by the user login session."
+    fi
+
+    echo "[INFO] IPC sockets and PID files will be created only at program start."
+
+
+    # --------------------------------------------------------
+    # 4-3. Prepare persistent directories
+    # --------------------------------------------------------
+
+    echo
+    echo "[4-3] Preparing persistent data directories..."
+
+    saved_umask="$(umask)"
+    umask 077
+
+    for dir in \
+        "$log_dir" \
+        "$install_log_dir" \
+        "$REPO_DIR/Video" \
+        "$REPO_DIR/Logfile"; do
+
+        mkdir -p -- "$dir"
+
+        [[ -d "$dir" && -O "$dir" && -w "$dir" ]] ||
+            error_exit "Directory is not owned/writable: $dir"
+    done
+
+    chmod 700 -- "$log_dir" "$install_log_dir"
+
+    echo "[OK] Device logs: $log_dir"
+    echo "[OK] Installer logs: $install_log_dir"
+    echo "[OK] Sonar video: $REPO_DIR/Video"
+    echo "[OK] Sonar ISLOG: $REPO_DIR/Logfile"
+
+
+    # --------------------------------------------------------
+    # 4-4. Prepare device log files
+    # --------------------------------------------------------
+
+    echo
+    echo "[4-4] Preparing device log files..."
+
+    for file in sonar.log dvl.log servo.log controllerd.log; do
+
+        [[ ! -L "$log_dir/$file" ]] ||
+            error_exit "Log file is a symbolic link: $log_dir/$file"
+
+        : >> "$log_dir/$file"
+
+        [[ -f "$log_dir/$file" && -O "$log_dir/$file" ]] ||
+            error_exit "Log file is not owned by current user: $file"
+
+        chmod 600 -- "$log_dir/$file"
+
+        echo "[OK] $file"
+    done
+
+
+    # --------------------------------------------------------
+    # 4-5. Check execution scripts
+    # --------------------------------------------------------
+
+    echo
+    echo "[4-5] Checking script syntax, paths and execution permissions..."
+
+    for file in marine-start.sh marine-stop.sh marine-launch.sh; do
+
+        src="$REPO_DIR/desktop/$file"
+
+        bash -n "$src" ||
+            error_exit "Script syntax check failed: $file"
+
+        grep -Fq 'RUN_DIR="$MARINE_IPC_DIR"' "$src" ||
+            error_exit "Script does not use common runtime directory: $file"
+
+        chmod u+x -- "$src"
+
+        [[ -x "$src" ]] ||
+            error_exit "Script is not executable: $file"
+
+        echo "[OK] $file"
+    done
+
+    chmod u+x -- "$REPO_DIR/install.bash"
+
+
+    # --------------------------------------------------------
+    # 4-6. Verify IPC socket permission implementation
+    # --------------------------------------------------------
+
+    echo
+    echo "[4-6] Checking IPC server socket permissions..."
+
+    for src in \
+        "$REPO_DIR/sdkExample/src/sonarCommandSocket.h" \
+        "$REPO_DIR/dvlCommandSocket.h" \
+        "$REPO_DIR/servoCommandSocket.h" \
+        "$REPO_DIR/controller/controllerd.c"; do
+
+        [[ -f "$src" ]] ||
+            error_exit "IPC source file missing: $src"
+
+        grep -Eq 'chmod\([^,]+,[[:space:]]*0600\)' "$src" ||
+            error_exit "Expected owner-only socket permission (0600): $src"
+
+        echo "[OK] ${src#"$REPO_DIR/"}"
+    done
+
+    umask "$saved_umask"
+
+    echo
+    echo "[OK] STEP 4 completed successfully."
+}
 
 # ------------------------------------------------------------
 # Main
@@ -621,12 +823,14 @@ main() {
     confirm_step 3 "Build Sonar, DVL, Servo and Controller"
     step_3
 
-    echo
-    echo "========================================"
-    echo " STEP 1-3 COMPLETED"
+    # STEP 4 - User runtime and storage configuration
+    confirm_step 4 "Configure IPC Runtime and Storage"
+    step_4
+
+    echo " STEP 1-4 COMPLETED"
     echo "========================================"
 
-    echo "[INFO] STEP 4-7 are not implemented yet."
+    echo "[INFO] STEP 5-7 are not implemented yet."
     echo "[INFO] Installation is NOT complete."
 }
 
