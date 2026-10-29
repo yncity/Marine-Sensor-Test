@@ -896,6 +896,39 @@ step_5() {
         echo "[INFO] Backup: $backup_file"
     fi
 
+    # --------------------------------------------------------
+    # 5-3b. Check onboard analogue audio conflict
+    # --------------------------------------------------------
+
+    echo
+    echo "[5-3b] Checking onboard analogue audio..."
+
+    if grep -Eq '^[[:space:]]*dtparam=audio=on[[:space:]]*$' "$config_file"; then
+
+        echo "[WARNING] Onboard analogue audio is enabled."
+        echo "[INFO] Analogue audio may conflict with Servo PWM0."
+
+        read -r -p "Disable onboard analogue audio? [y/N]: " answer ||
+            error_exit "Audio configuration cancelled."
+
+        [[ "$answer" == "y" ]] ||
+            error_exit "PWM0 audio conflict must be resolved."
+
+        if [[ -z "$backup_file" ]]; then
+            backup_file="${config_file}.marine-backup-$(date +%Y%m%d-%H%M%S)"
+            sudo cp -a -- "$config_file" "$backup_file"
+        fi
+
+        sudo sed -i \
+            's/^[[:space:]]*dtparam=audio=on[[:space:]]*$/#dtparam=audio=on/' \
+            "$config_file"
+
+        echo "[OK] Onboard analogue audio disabled."
+        echo "[INFO] Backup: $backup_file"
+
+    else
+        echo "[OK] No active default analogue audio setting found."
+    fi
 
     # --------------------------------------------------------
     # 5-4. Configure user group
