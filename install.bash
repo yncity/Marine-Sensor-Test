@@ -1165,6 +1165,205 @@ step_6() {
     echo "[OK] STEP 6 completed successfully."
 }
 
+
+# ------------------------------------------------------------
+# 8. STEP 7 - Install desktop Controller launcher
+# ------------------------------------------------------------
+
+step_7() {
+
+    echo
+    echo "[7-1] Checking desktop launcher requirements..."
+
+    local template="$REPO_DIR/desktop/marine-launch.desktop.in"
+    local launch_script="$REPO_DIR/desktop/marine-launch.sh"
+    local start_script="$REPO_DIR/desktop/marine-start.sh"
+    local tui_bin="$REPO_DIR/controller/controller_tui"
+    local cli_bin="$REPO_DIR/controller/controller"
+
+    local desktop_dir=""
+    local destination=""
+    local staged=""
+    local escaped_repo=""
+    local backup_file=""
+
+    command -v xdg-user-dir >/dev/null 2>&1 ||
+        error_exit "xdg-user-dir is not installed."
+
+    command -v desktop-file-validate >/dev/null 2>&1 ||
+        error_exit "desktop-file-validate is not installed."
+
+    [[ -r "$template" ]] ||
+        error_exit "Desktop launcher template missing."
+
+    [[ -f "$launch_script" ]] ||
+        error_exit "marine-launch.sh missing."
+
+    # All required programs must already be built.
+    local bin
+
+    for bin in "$start_script" "$tui_bin" "$cli_bin"; do
+
+        [[ -x "$bin" ]] ||
+            error_exit "Required executable is missing: $bin"
+
+    done
+
+    bash -n "$launch_script" ||
+        error_exit "marine-launch.sh syntax error."
+
+    chmod u+x -- "$launch_script"
+
+    [[ "$REPO_DIR" != *%* ]] ||
+        error_exit "Repository path contains '%'."
+
+    echo "[OK] Launcher dependencies verified."
+
+
+    # --------------------------------------------------------
+    # 7-2. Locate desktop directory
+    # --------------------------------------------------------
+
+    echo
+    echo "[7-2] Locating the user's desktop folder..."
+
+    desktop_dir="$(xdg-user-dir DESKTOP)" ||
+        error_exit "Could not locate the desktop directory."
+
+    [[ -n "$desktop_dir" &&
+       "$desktop_dir" == /* &&
+       "$desktop_dir" != "$HOME" ]] ||
+        error_exit "Invalid desktop folder returned: $desktop_dir"
+
+    mkdir -p -- "$desktop_dir"
+
+    [[ -d "$desktop_dir" &&
+       -O "$desktop_dir" &&
+       -w "$desktop_dir" ]] ||
+        error_exit "Desktop directory is not writable by current user."
+
+    destination="$desktop_dir/Marine Sensor Controller.desktop"
+
+    echo "[OK] Desktop folder: $desktop_dir"
+
+
+    # --------------------------------------------------------
+    # 7-3. Generate and validate launcher
+    # --------------------------------------------------------
+
+    echo
+    echo "[7-3] Generating and validating launcher..."
+
+    grep -Fq '@REPO_DIR@' "$template" ||
+        error_exit "Missing @REPO_DIR@ placeholder in launcher template."
+
+    escaped_repo="$(
+        printf '%s' "$REPO_DIR" |
+            sed 's/[\\&|]/\\&/g'
+    )"
+
+    staged="$(mktemp "$desktop_dir/.marine-controller.XXXXXXXX.desktop")"
+
+    sed "s|@REPO_DIR@|$escaped_repo|g" \
+        "$template" > "$staged"
+
+    if grep -Fq '@REPO_DIR@' "$staged"; then
+        rm -f -- "$staged"
+        error_exit "Launcher template placeholder was not resolved."
+    fi
+
+    if ! desktop-file-validate "$staged"; then
+        rm -f -- "$staged"
+        error_exit "Desktop launcher validation failed."
+    fi
+
+    if ! grep -Fxq \
+            "Exec=$REPO_DIR/desktop/marine-launch.sh" "$staged" ||
+       ! grep -Fxq 'Terminal=true' "$staged"; then
+
+        rm -f -- "$staged"
+        error_exit "Launcher Exec or Terminal setting does not match."
+    fi
+
+    echo "[OK] Launcher configuration verified."
+
+
+    # --------------------------------------------------------
+    # 7-4. Install desktop launcher
+    # --------------------------------------------------------
+
+    echo
+    echo "[7-4] Installing desktop launcher..."
+
+    # Do not overwrite symbolic links or directories.
+    if [[ -L "$destination" ]] ||
+       { [[ -e "$destination" ]] && [[ ! -f "$destination" ]]; }; then
+
+        rm -f -- "$staged"
+        error_exit "Desktop launcher destination is not a regular file."
+    fi
+
+    if [[ -f "$destination" ]]; then
+
+        if cmp -s -- "$staged" "$destination"; then
+
+            echo "[OK] Existing launcher is up to date."
+
+        else
+
+            backup_file="${destination}.backup-$(date +%Y%m%d-%H%M%S)"
+
+            cp -p -- "$destination" "$backup_file"
+
+            install -m 0755 -- "$staged" "$destination"
+
+            echo "[OK] Updated launcher."
+            echo "[INFO] Backup: $backup_file"
+
+        fi
+
+    else
+
+        install -m 0755 -- "$staged" "$destination"
+
+        echo "[OK] Installed new desktop launcher."
+
+    fi
+
+    rm -f -- "$staged"
+
+    # Allow the desktop environment to launch this file.
+    chmod 0755 -- "$destination"
+
+
+    # --------------------------------------------------------
+    # 7-5. Final verification
+    # --------------------------------------------------------
+
+    echo
+    echo "[7-5] Final verification..."
+
+    [[ -f "$destination" && -x "$destination" ]] ||
+        error_exit "Desktop launcher is missing or not executable."
+
+    desktop-file-validate "$destination" ||
+        error_exit "Installed desktop launcher failed validation."
+
+    grep -Fxq \
+        "Exec=$REPO_DIR/desktop/marine-launch.sh" "$destination" ||
+        error_exit "Installed launcher Exec path mismatch."
+
+    echo "[OK] Desktop launcher: $destination"
+
+    echo
+    echo "[INFO] STEP 7 only installs the launcher."
+    echo "[INFO] No sensor programs were started."
+    echo "[INFO] Desktop icon visibility depends on desktop settings."
+
+    echo
+    echo "[OK] STEP 7 completed successfully."
+}
+
 # ------------------------------------------------------------
 # Main
 # ------------------------------------------------------------
@@ -1206,12 +1405,30 @@ main() {
     confirm_step 6 "Install Desktop Autostart"
     step_6
 
-    echo " STEP 1-6 COMPLETED"
+    # STEP 7 - Desktop Controller launcher
+    confirm_step 7 "Install Desktop Controller Launcher"
+    step_7
+
+    echo
     echo "========================================"
-    echo "[INFO] STEP 7 is not implemented yet."
-    echo "[INFO] Installation is NOT complete."
-    echo "[INFO] Reboot is required before Servo operation."
-    echo "[INFO] Desktop autostart will apply after graphical login."
+    echo " MARINE SENSOR INSTALLATION COMPLETED"
+    echo "========================================"
+
+    echo "[OK] STEP 1-7 completed."
+
+    echo
+    echo "[INFO] Required programs were built."
+    echo "[INFO] Desktop autostart was installed."
+    echo "[INFO] Controller launcher was installed."
+
+    echo
+    echo "[IMPORTANT] Reboot is required before Servo operation."
+    echo "[IMPORTANT] Log in to the graphical desktop after reboot."
+    echo "[IMPORTANT] Verify sensor connections and PWM permissions."
+
+    echo
+    echo "[INFO] The installer did not start any sensor programs."
+    echo "[INFO] Hardware validation must be performed separately."
 }
 
 main "$@"

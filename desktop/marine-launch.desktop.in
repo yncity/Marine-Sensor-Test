@@ -3,5 +3,6 @@ Type=Application
 Name=Marine Sensor Controller
 Comment=Launch marine sensor controller
 Exec=@REPO_DIR@/desktop/marine-launch.sh
+Icon=utilities-terminal
 Terminal=true
 Categories=Utility;
