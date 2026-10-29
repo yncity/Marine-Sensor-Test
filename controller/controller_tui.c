@@ -49,7 +49,7 @@ static void draw_rule(int y)
     int rows, cols;
     getmaxyx(stdscr, rows, cols);
     if (y >= 0 && y < rows && cols > 0)
-        mvhline(y, 0, ACS_HLINE, cols);
+        mvhline(y, 0, '-', cols);
 }
 
 static void draw_vertical_rule(int x, int first_row, int last_row)
