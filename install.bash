@@ -6,11 +6,21 @@ set -Eeuo pipefail
 # ============================================================
 # Marine-Sensor-Test Installation
 #
-# Target: Raspberry Pi OS (Desktop)
+# Target: Raspberry Pi 3 / Raspberry Pi OS Desktop
 # Execution: Normal user with sudo permissions
 #
-# Current implementation:
-#   STEP 1 - System environment check
+# STEP 1 - System environment check
+# STEP 2 - Install required packages
+# STEP 3 - Build all programs
+# STEP 4 - Configure IPC runtime and storage
+# STEP 5 - Configure Servo PWM (BCM18 / PWM0)
+# STEP 6 - Install desktop autostart
+# STEP 7 - Install Controller desktop launcher
+#
+# Sensor execution:
+#   Graphical login -> marine-start.sh
+#
+# No systemd sensor services are installed.
 # ============================================================
 
 
