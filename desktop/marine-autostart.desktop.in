@@ -2,5 +2,5 @@
 Type=Application
 Name=Marine Sensor Auto Start
 Comment=Start marine sensors after desktop login
-Exec=@REPO_DIR@/desktop/marine-start.sh
+Exec=/usr/bin/bash @REPO_DIR@/desktop/marine-start.sh
 Terminal=false

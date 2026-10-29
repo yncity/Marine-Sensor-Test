@@ -342,6 +342,9 @@ step_2() {
             error_exit "Required command not found: $cmd"
         fi
 
+        [[ -x /usr/bin/bash ]] ||
+        error_exit "Bash interpreter not found: /usr/bin/bas    
+
         echo "[OK] $cmd"
     done
 
@@ -1169,7 +1172,7 @@ step_6() {
     fi
 
     if ! grep -Fxq \
-        "Exec=$REPO_DIR/desktop/marine-start.sh" "$staged"; then
+        "Exec=/usr/bin/bash $REPO_DIR/desktop/marine-start.sh" "$staged"; then
 
         rm -f -- "$staged"
         error_exit "Autostart Exec path mismatch."
@@ -1235,7 +1238,7 @@ step_6() {
         error_exit "Installed autostart entry validation failed."
 
     grep -Fxq \
-        "Exec=$REPO_DIR/desktop/marine-start.sh" "$destination" ||
+        "Exec=/usr/bin/bash $REPO_DIR/desktop/marine-start.sh" "$destination" ||
         error_exit "Installed Exec path is incorrect."
 
     echo "[OK] Installed file: $destination"
