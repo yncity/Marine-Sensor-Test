@@ -60,10 +60,10 @@ static int dvl_command_start(DvlCommandSocket *cmd)
     }
     umask(old_mask);
 
-    // Custom IPC socket: allow owner and group access
+    // Custom IPC socket: allow owner access only
     if (custom && custom[0])
     {
-        if (chmod(cmd->path, 0660) != 0)
+        if (chmod(cmd->path, 0600) != 0)
         {
             int saved = errno;
 

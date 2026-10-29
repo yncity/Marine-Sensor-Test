@@ -77,12 +77,12 @@ public:
             return false;
         }
 
-        // Custom IPC socket: allow owner and group access
+        // Custom IPC socket: allow owner access only
         const char *custom = std::getenv("MARINE_SONAR_SOCKET");
 
         if (custom && custom[0])
         {
-            if (chmod(path_.c_str(), 0660) != 0)
+            if (chmod(path_.c_str(), 0600) != 0)
             {
                 std::perror("Sonar IPC chmod");
                 stop();

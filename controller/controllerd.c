@@ -601,10 +601,10 @@ int main(int argc, char **argv)
     }
     umask(old_mask);
 
-    // Custom IPC socket: allow owner and group access
+    // Custom IPC socket: allow owner access only
     if (custom && custom[0] && strcmp(path, custom) == 0)
     {
-        if (chmod(path, 0660) != 0)
+        if (chmod(path, 0600) != 0)
         {
             int saved = errno;
 

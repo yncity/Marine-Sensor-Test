@@ -15,12 +15,19 @@ set -a
 source "$ENV_FILE"
 set +a
 
+
+: "${MARINE_IPC_DIR:?}"
 : "${MARINE_SONAR_SOCKET:?}"
 : "${MARINE_DVL_SOCKET:?}"
-: "${XDG_RUNTIME_DIR:?Run from a logged-in desktop session}"
+: "${MARINE_SERVO_SOCKET:?}"
+: "${XDG_RUNTIME_DIR:?Run from a logged-in session}"
 
-RUN_DIR="$XDG_RUNTIME_DIR/marine-sensors"
-mkdir -p -- "$RUN_DIR"
+RUN_DIR="$MARINE_IPC_DIR"
+
+if [[ ! -d "$RUN_DIR" || ! -w "$RUN_DIR" ]]; then
+    echo "[ERROR] Runtime directory is missing or not writable: $RUN_DIR" >&2
+    exit 1
+fi
 
 # 2. Prevent start/stop conflicts
 exec 9>"$RUN_DIR/start.lock"

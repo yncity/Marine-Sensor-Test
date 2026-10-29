@@ -1,12 +1,14 @@
 #ifndef MARINE_CONTROLLER_JOURNAL_H
 #define MARINE_CONTROLLER_JOURNAL_H
 
-/* Stage 5-B: collect actual systemd journal messages for the three services.
- * - One independent journalctl follower per service.
- * - Only stdout of journalctl (-o cat) enters the device log ring buffer.
- * - journalctl stderr is retained separately as a collector diagnostic.
- * - No ncurses access and no device/IPC commands.
- * - Requires Linux with systemd-journald for actual operation.
+/*
+ * Collect device output from user-owned log files.
+ *
+ * - One independent "tail -F" reader for each device.
+ * - Sonar, DVL and Servo logs are read separately.
+ * - Log data is stored in thread-safe ring buffers.
+ * - No system service manager is required.
+ * - No ncurses calls or device commands from log workers.
  */
 
 #include <errno.h>
@@ -132,7 +134,7 @@ static void controller_journal_feed_log(ControllerJournalStream *stream,
         }
         else if (ch == '\r')
         {
-            /* journalctl normally emits LF; ignore CR if present. */
+            /* Ignore carriage returns in device logs. */
         }
         else if (ch == '\t')
         {
@@ -151,7 +153,7 @@ static void controller_journal_feed_log(ControllerJournalStream *stream,
     }
 }
 
-/* stderr from journalctl belongs to collector diagnostics, not device logs. */
+/* stderr from tail belongs to collector diagnostics. */
 static void controller_journal_feed_error(ControllerJournalStream *stream,
                                           char *buffer, size_t *used,
                                           const char *data, size_t n)
@@ -182,7 +184,7 @@ static void controller_journal_reap(pid_t child, int stopping)
         return;
 
     if (stopping)
-        (void)kill(child, SIGTERM); /* Only our journalctl child, never a service. */
+        (void)kill(child, SIGTERM); /* Only our tail child, never a sensor process. */
 
     int status;
     for (int i = 0; i < 20; ++i)

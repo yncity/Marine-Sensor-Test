@@ -1,11 +1,12 @@
 #ifndef MARINE_CONTROLLER_LOG_VIEW_H
 #define MARINE_CONTROLLER_LOG_VIEW_H
 
-/* Stage 5-C: render the journal messages collected by Stage 5-B.
- * Only the ncurses/main thread may call these functions.
- * Device messages come exclusively from controller_journal_snapshot().
- * No device commands are sent, and no background thread uses ncurses.
- * At Stage 5-C, newest_offset stays at zero (follow latest logs).
+/*
+ * Render device log messages collected from log files.
+ *
+ * Only the ncurses main thread renders the log panels.
+ * Device messages come from controller_journal_snapshot().
+ * No device commands are sent from the log view.
  */
 
 #include <ncurses.h>

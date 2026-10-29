@@ -27,14 +27,10 @@ export MARINE_STOP_SCRIPT="$REPO_DIR/desktop/marine-stop.sh"
 : "${XDG_RUNTIME_DIR:?Run from a logged-in desktop session}"
 
 # 2. Prepare runtime and log directories
-IPC_DIR="$(dirname -- "$MARINE_CONTROLLER_SOCKET")"
 
-if [[ ! -d "$IPC_DIR" || ! -w "$IPC_DIR" ]]; then
-    echo "[ERROR] IPC directory is missing or not writable: $IPC_DIR" >&2
-    exit 1
-fi
+: "${MARINE_IPC_DIR:?}"
 
-RUN_DIR="$XDG_RUNTIME_DIR/marine-sensors"
+RUN_DIR="$MARINE_IPC_DIR"
 LOG_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/marine-sensors/logs"
 
 # Controller CLI for IPC readiness checks
@@ -45,11 +41,20 @@ if [[ ! -x "$CONTROLLER_CLI" ]]; then
     exit 1
 fi
 
+# Create user-owned runtime and log directories
 mkdir -p -- "$RUN_DIR" "$LOG_DIR"
+
+# Restrict access to the logged-in user
+chmod 700 "$RUN_DIR"
+
+if [[ ! -d "$RUN_DIR" || ! -w "$RUN_DIR" ]]; then
+    echo "[ERROR] Runtime directory is not writable: $RUN_DIR" >&2
+    exit 1
+fi
 
 # Prepare Sonar recording directories
 mkdir -p -- "$REPO_DIR/Video" "$REPO_DIR/Logfile"
-chmod 700 "$RUN_DIR"
+
 
 # Prevent simultaneous startup requests
 exec 9>"$RUN_DIR/start.lock"

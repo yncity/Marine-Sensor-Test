@@ -59,10 +59,10 @@ static int servo_command_start(ServoCommandSocket *cmd)
     }
     umask(original_mask);
 
-    // Custom IPC socket: allow owner and group access
+    // Custom IPC socket: allow owner access only
     if (custom && custom[0])
     {
-        if (chmod(cmd->path, 0660) != 0)
+        if (chmod(cmd->path, 0600) != 0)
         {
             int saved = errno;
 

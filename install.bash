@@ -215,7 +215,6 @@ step_1() {
         "desktop/marine-stop.sh"
         "desktop/marine-launch.sh"
         "desktop/marine-ipc.env"
-        "desktop/marine-sensors.conf"
         "desktop/marine-autostart.desktop.in"
         "desktop/marine-launch.desktop.in"
     )

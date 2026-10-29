@@ -25,6 +25,7 @@ set -a
 source "$ENV_FILE"
 set +a
 
+: "${MARINE_IPC_DIR:?}"
 : "${MARINE_CONTROLLER_SOCKET:?}"
 : "${XDG_RUNTIME_DIR:?Desktop session required}"
 
@@ -55,8 +56,10 @@ if [[ "$pong" != "PONG: controllerd is responding" ]]; then
 fi
 
 # 5. Prevent duplicate TUI windows
-RUN_DIR="$XDG_RUNTIME_DIR/marine-sensors"
-mkdir -p -- "$RUN_DIR"
+RUN_DIR="$MARINE_IPC_DIR"
+
+[[ -d "$RUN_DIR" && -w "$RUN_DIR" ]] ||
+    show_error "Runtime directory is not ready: $RUN_DIR"
 
 exec 8>"$RUN_DIR/tui.lock"
 
