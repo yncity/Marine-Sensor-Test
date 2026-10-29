@@ -35,12 +35,54 @@ fi
 RUN_DIR="$XDG_RUNTIME_DIR/marine-sensors"
 LOG_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/marine-sensors/logs"
 
+# Controller CLI for IPC readiness checks
+CONTROLLER_CLI="$REPO_DIR/controller/controller"
+
+if [[ ! -x "$CONTROLLER_CLI" ]]; then
+    echo "[ERROR] Controller CLI binary not found: $CONTROLLER_CLI" >&2
+    exit 1
+fi
+
 mkdir -p -- "$RUN_DIR" "$LOG_DIR"
 chmod 700 "$RUN_DIR"
 
 # Prevent simultaneous startup requests
 exec 9>"$RUN_DIR/start.lock"
 flock -x 9
+
+
+# Check real IPC responses through controllerd
+ipc_ready() {
+    local name="$1"
+    local command="" prefix="" reply=""
+
+    case "$name" in
+        controllerd)
+            command="ping"
+            prefix="PONG: controllerd is responding"
+            ;;
+        sonar)
+            command="sonar-health"
+            prefix="SONAR STATE:"
+            ;;
+        dvl)
+            command="dvl-health"
+            prefix="DVL STATE:"
+            ;;
+        servo)
+            command="servo-health"
+            prefix="SERVO STATE:"
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+
+    reply="$(timeout 3 "$CONTROLLER_CLI" "$command" 2>/dev/null)" || return 1
+
+    [[ "$reply" == "$prefix"* ]]
+}
+
 
 # 3. Start a program only if it is not running
 start_one() {
@@ -68,12 +110,12 @@ start_one() {
             actual="$(readlink -f -- "/proc/$old_pid/exe" 2>/dev/null || true)"
 
             if [[ "$actual" == "$expected" ]]; then
-                if [[ -S "$sock" ]]; then
-                    echo "[OK] $name already running (PID $old_pid), IPC ready"
+                if [[ -S "$sock" ]] && ipc_ready "$name"; then
+                    echo "[OK] $name already running (PID $old_pid), IPC responding"
                     return 0
                 fi
 
-                echo "[WARN] $name is running but IPC is not ready: $sock" >&2
+                echo "[WARN] $name is running but IPC is not responding: $sock" >&2
                 return 1
             fi
         fi
@@ -97,8 +139,10 @@ start_one() {
     local pid=$!
     printf '%s\n' "$pid" > "$pidfile"
 
-    # Wait up to 10 seconds for the IPC socket
-    for ((i=0; i<100; i++)); do
+    # Wait approximately 15 seconds for an actual IPC response
+    local deadline=$((SECONDS + 15))
+
+    while ((SECONDS < deadline)); do
 
         # Process exited before IPC initialization
         if ! kill -0 "$pid" 2>/dev/null; then
@@ -108,18 +152,19 @@ start_one() {
             return 1
         fi
 
-        # IPC socket created successfully
-        if [[ -S "$sock" ]]; then
-            echo "[OK] $name started (PID $pid), IPC ready"
+        # Verify socket existence and an actual IPC response
+        if [[ -S "$sock" ]] && ipc_ready "$name"; then
+            echo "[OK] $name started (PID $pid), IPC responding"
             return 0
         fi
 
-        sleep 0.1
+        sleep 0.2
     done
 
-    echo "[ERROR] $name IPC socket was not ready within 10 seconds." >&2
+    echo "[ERROR] $name IPC did not respond during startup." >&2
     echo "Check log: $logfile" >&2
     return 1
+
 }
 
 # 4. Launch programs

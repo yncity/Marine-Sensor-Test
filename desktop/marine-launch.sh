@@ -45,6 +45,15 @@ if [[ ! -S "$MARINE_CONTROLLER_SOCKET" ]]; then
     show_error "Controller IPC socket is not ready"
 fi
 
+# Confirm controllerd actually responds
+CONTROLLER_CLI="$REPO_DIR/controller/controller"
+
+pong="$(timeout 3 "$CONTROLLER_CLI" ping 2>/dev/null || true)"
+
+if [[ "$pong" != "PONG: controllerd is responding" ]]; then
+    show_error "Controller daemon is not responding"
+fi
+
 # 5. Prevent duplicate TUI windows
 RUN_DIR="$XDG_RUNTIME_DIR/marine-sensors"
 mkdir -p -- "$RUN_DIR"
